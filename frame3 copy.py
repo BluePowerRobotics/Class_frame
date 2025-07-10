@@ -163,6 +163,7 @@ class movements():
 
 class calendar:
     def __init__(self):
+        self.moving_class=0
         self.labelsize=40
         self.gaprate=0.25
         self.onclass_rate=1
@@ -187,6 +188,9 @@ class calendar:
         self.l_after_class=True
         self.moving=False
         self.l_moving=False
+        self.sec_past=False
+        self.l_sec_past=False
+        self.date_view=datetime.datetime.now()
 
     def load_class(self):
         today=datetime.datetime.now()
@@ -216,6 +220,10 @@ class calendar:
             self.b_size=text["文字大小"][0]
             self.onclass_rate=text["上课放大倍率"][0]
             self.ac_size=text["竖直显示的文字大小"][0]
+
+        with open('data.json', 'r') as file:
+            self.class_change= json.load(file)
+            
                    
     def start(self):
         self.mainland=Tk()
@@ -228,10 +236,81 @@ class calendar:
         self.highlight=[]
         self.canvas=Canvas()
         
-        
-    def draw(self):
+    def turn_date(self,t=0):
+        self.date_view+=datetime.timedelta(days=t)
+        self.t_date_view=self.date_view.strftime("%Y-%m-%d")
+        self.todate.config(text=self.t_date_view)
+        to_week=datetime.date(self.date_view.year,self.date_view.month,self.date_view.day).weekday()
+        self.changing_class=["周"]+[self.week[to_week]]+["|"]+self.classes[str(to_week+1)]
+        for i in self.class_change:
+            if(i[0]==self.t_date_view):
+                self.changing_class=i[1]
+        for i in range(len(self.labels)):
+            self.labels[i].config(text=self.changing_class[i],font=('幼圆',int(self.labelsize/(len(self.changing_class[i])**0.5))))
 
+
+    def select(self,event,m,n):
+        self.moving_class+=1
+        self.mousex=event.x_root
+        self.mousey=event.y_root
+        if(self.moving_class==1):
+            self.x_start=self.mousex
+            self.y_start=self.mousey
+            self.ml.tkraise()
+            self.ml.config(text=n,font=('幼圆',int(self.b_size/(len(n)**0.5))),fg='yellow',bg='black',wraplength=self.b_size*1.5)
+            
+        self.ml.place(x=m.winfo_x()+self.mousex-self.x_start,y=m.winfo_y()+self.mousey-self.y_start)
+
+    def release(self,event,m,n):
+        dy=self.ml.winfo_y()
+        dx=self.ml.winfo_x()
+        if(dy>=self.b_size*(0.5+self.gaprate*2)-m.winfo_reqheight()/2 and dy<=self.b_size*(0.5+self.gaprate*2)+m.winfo_reqheight()/2):
+            df=10000
+            kf=0
+            for i in range(len(self.labels)):
+                if(not self.labels[i].cget('text') in ['周','|']+self.week):
+                    if(df>abs(self.labels[i].winfo_x()-dx)):
+                        df=abs(self.labels[i].winfo_x()-dx)
+                        kf=i
+                    else:
+                        break
+            self.changing_class[kf]=n
+            self.class_change.append([self.t_date_view,self.changing_class])
+            gx=self.labels[kf].winfo_x()
+            gy=self.labels[kf].winfo_y()
+            for i in range(1,40):
+                self.ml.place(x=self.ml.winfo_x()*0.7+gx*0.3,y=self.ml.winfo_y()*0.7+gy*0.3)
+                time.sleep(1/120)
+                self.mainland.update()
+            self.labels[kf].config(text=n,font=('幼圆',int(self.b_size/(len(n)**0.5))))
+        else:
+            gx=m.winfo_x()
+            gy=m.winfo_y()
+            for i in range(1,40):
+                self.ml.place(x=self.ml.winfo_x()*0.7+gx*0.3,y=self.ml.winfo_y()*0.7+gy*0.3)
+                time.sleep(1/120)
+                self.mainland.update()
+        self.moving_class=0
+        self.ml.place_forget()
+
+    def bind_letters(self,x,y,z):
+        x.bind('<B1-Motion>',lambda event:self.select(event,y,z))
+        x.bind('<ButtonRelease-1>',lambda event:self.release(event,y,z))
+    
+    def draw(self):
         if(self.counter==0):
+            self.ml=Label(self.mainland)
+            self.on_class_label=Label(self.mainland)
+            self.todate=Label(self.mainland)
+            self.left_shift=Button(self.mainland,command=lambda:self.turn_date(-1))
+            self.right_shift=Button(self.mainland,command=lambda:self.turn_date(1))
+            self.select_list=[0]*len(self.selects)
+            for y in range(len(self.selects)):
+                self.select_list[y]=Label(self.mainland,text=self.selects[y],font=('幼圆',int(self.b_size/(len(self.selects[y])**0.5))),fg='white',bg='black',wraplength=self.b_size*1.5)
+                self.bind_letters(self.select_list[y],self.select_list[y],self.selects[y])
+            self.f_height=self.b_size*((len(self.select_list)-1)//6*0.5+1+0.5+self.gaprate*2)+((len(self.select_list)-1)//6+2)*self.select_list[y].winfo_reqheight()
+            self.changing_class=self.today_class
+            
             #绑定拖动
             self.typical_size=[]
             for k in [0,1]:
@@ -243,9 +322,9 @@ class calendar:
                 t_position=self.t_labelsize*self.gaprate
                 for x in range(len(self.today_class)):
                     if(x!=self.highlight):
-                        class_lab=Label(self.mainland,text=self.today_class[x],font=('幼圆',int(self.t_labelsize/(len(self.today_class[x])**0.5))),fg='white',bg='black',wraplength=self.t_labelsize*2)
+                        class_lab=Label(self.mainland,text=self.today_class[x],font=('幼圆',int(self.t_labelsize/(len(self.today_class[x])**0.5))),fg='white',bg='black',wraplength=self.t_labelsize*1.5)
                     else:
-                        class_lab=Label(self.mainland,text=self.today_class[x],font=('幼圆',int(self.t_labelsize/(len(self.today_class[x])**0.5))),fg='yellow',bg='black',wraplength=self.t_labelsize*2)
+                        class_lab=Label(self.mainland,text=self.today_class[x],font=('幼圆',int(self.t_labelsize/(len(self.today_class[x])**0.5))),fg='yellow',bg='black',wraplength=self.t_labelsize*1.5)
                     class_lab.place(x=t_position,y=self.t_labelsize*self.gaprate)
                     self.t_labels.append(class_lab)
                     t_position+=class_lab.winfo_reqwidth()
@@ -264,11 +343,11 @@ class calendar:
                 for x in range(len(self.today_class)):
                     if(x!=self.highlight):
                         if(self.today_class[x]!='|'):
-                            class_lab=Label(self.mainland,text=self.today_class[x],font=('幼圆',int(self.s_labelsize/(len(self.today_class[x])**0.5))),fg='white',bg='black',wraplength=self.s_labelsize*2)
+                            class_lab=Label(self.mainland,text=self.today_class[x],font=('幼圆',int(self.s_labelsize/(len(self.today_class[x])**0.5))),fg='white',bg='black',wraplength=self.s_labelsize*1.5)
                         else:
-                            class_lab=Label(self.mainland,text='—',font=('幼圆',int(self.s_labelsize/(len(self.today_class[x])**0.5))),fg='white',bg='black',wraplength=self.s_labelsize*2)
+                            class_lab=Label(self.mainland,text='—',font=('幼圆',int(self.s_labelsize/(len(self.today_class[x])**0.5))),fg='white',bg='black',wraplength=self.s_labelsize*1.5)
                     else:
-                        class_lab=Label(self.mainland,text=self.today_class[x],font=('幼圆',int(self.s_labelsize/(len(self.today_class[x])**0.5))),fg='yellow',bg='black',wraplength=self.s_labelsize*2)
+                        class_lab=Label(self.mainland,text=self.today_class[x],font=('幼圆',int(self.s_labelsize/(len(self.today_class[x])**0.5))),fg='yellow',bg='black',wraplength=self.s_labelsize*1.5)
                     class_lab.place(x=self.s_labelsize*self.gaprate,y=s_position)
                     self.s_labels.append(class_lab)
                     s_position+=class_lab.winfo_reqheight()
@@ -290,9 +369,9 @@ class calendar:
                 position=self.labelsize*self.gaprate
                 for x in range(len(self.today_class)):
                     if(x!=self.highlight):
-                        class_lab=Label(self.mainland,text=self.today_class[x],font=('幼圆',int(self.labelsize/(len(self.today_class[x])**0.5))),fg='white',bg='black',wraplength=self.labelsize*2)
+                        class_lab=Label(self.mainland,text=self.today_class[x],font=('幼圆',int(self.labelsize/(len(self.today_class[x])**0.5))),fg='white',bg='black',wraplength=self.labelsize*1.5)
                     else:
-                        class_lab=Label(self.mainland,text=self.today_class[x],font=('幼圆',int(self.labelsize/(len(self.today_class[x])**0.5))),fg='yellow',bg='black',wraplength=self.labelsize*2)
+                        class_lab=Label(self.mainland,text=self.today_class[x],font=('幼圆',int(self.labelsize/(len(self.today_class[x])**0.5))),fg='yellow',bg='black',wraplength=self.labelsize*1.5)
                     class_lab.place(x=position,y=self.labelsize*self.gaprate)
                     self.labels.append(class_lab)
                     position+=class_lab.winfo_reqwidth()
@@ -309,11 +388,11 @@ class calendar:
                 for x in range(len(self.today_class)):
                     if(x!=self.highlight):
                         if(self.today_class[x]!='|'):
-                            class_lab=Label(self.mainland,text=self.today_class[x],font=('幼圆',int(self.labelsize/(len(self.today_class[x])**0.5))),fg='white',bg='black',wraplength=self.labelsize*2)
+                            class_lab=Label(self.mainland,text=self.today_class[x],font=('幼圆',int(self.labelsize/(len(self.today_class[x])**0.5))),fg='white',bg='black',wraplength=self.labelsize*1.5)
                         else:
-                            class_lab=Label(self.mainland,text='—',font=('幼圆',int(self.labelsize/(len(self.today_class[x])**0.5))),fg='white',bg='black',wraplength=self.labelsize*2)
+                            class_lab=Label(self.mainland,text='—',font=('幼圆',int(self.labelsize/(len(self.today_class[x])**0.5))),fg='white',bg='black',wraplength=self.labelsize*1.5)
                     else:
-                        class_lab=Label(self.mainland,text=self.today_class[x],font=('幼圆',int(self.labelsize/(len(self.today_class[x])**0.5))),fg='yellow',bg='black',wraplength=self.labelsize*2)
+                        class_lab=Label(self.mainland,text=self.today_class[x],font=('幼圆',int(self.labelsize/(len(self.today_class[x])**0.5))),fg='yellow',bg='black',wraplength=self.labelsize*1.5)
                     class_lab.place(x=self.labelsize*self.gaprate,y=position)
                     self.labels.append(class_lab)
                     position+=class_lab.winfo_reqheight()
@@ -322,23 +401,53 @@ class calendar:
                         self.width=width
                 self.height=position+self.labelsize*self.gaprate
             
-        if(self.counter==0 or self.after_class!=self.l_after_class or self.nowgroup!=self.l_nowgroup):
+        if(self.counter==0 or self.after_class!=self.l_after_class or self.nowgroup!=self.l_nowgroup or self.sec_past!=self.l_sec_past):
             for i in range(len(self.labels)):
                 if(i==self.highlight):
                     self.labels[i].config(fg='yellow')
                 else:
-                    self.labels[i].config(fg='white')
-            if(self.nowgroup in ['b','f']):
+                    if(self.sec_past and self.nowgroup!='f' and not self.after_class):
+                        self.labels[i].place_forget()
+                        self.labels[i].pack_forget()
+                    else:
+                        self.labels[i].config(fg='white')
+            if(self.sec_past and self.nowgroup!='f' and not self.after_class):
+                if(self.nowgroup=='b'):
+                    self.labelsize=self.b_size*self.onclass_rate
+                    self.labels[self.highlight].config(font=('幼圆',int(self.labelsize/(len(self.labels[self.highlight].cget('text'))**0.5))),wraplength=self.labelsize*1.5)
+                    self.labels[self.highlight].pack(padx=0,anchor='n',pady=self.labelsize*self.gaprate)
+                    self.on_class_label.config(text=self.onw,font=('幼圆',int(self.labelsize)),fg='yellow',bg='black',anchor='s')
+                    self.on_class_label.pack()
+                    self.width=self.on_class_label.winfo_reqwidth()+self.labelsize*self.gaprate*2
+                    self.height=self.on_class_label.winfo_reqheight()+self.labelsize*self.gaprate*3+self.labels[self.highlight].winfo_reqheight()
+                else:
+                    self.labelsize=self.ac_size*self.onclass_rate
+                    self.labels[self.highlight].config(font=('幼圆',int(self.labelsize/(len(self.labels[self.highlight].cget('text'))**0.5))),wraplength=self.labelsize*1.5)
+                    if(self.nowgroup=='a'):
+                        self.labels[self.highlight].pack(padx=self.labelsize*self.gaprate,anchor='nw',pady=self.labelsize*self.gaprate)
+                        self.on_class_label.config(text=self.onw,font=('幼圆',int(self.labelsize)),fg='yellow',bg='black',anchor='nw')
+                        self.on_class_label.place(x=self.labelsize*self.gaprate*2+self.labels[self.highlight].winfo_reqwidth(),y=self.labelsize*self.gaprate)
+                    else:
+                        self.labels[self.highlight].pack(padx=self.labelsize*self.gaprate,anchor='ne',pady=self.labelsize*self.gaprate)
+                        self.on_class_label.config(text=self.onw,font=('幼圆',int(self.labelsize)),fg='yellow',bg='black',anchor='w')
+                        self.on_class_label.place(x=self.labelsize*self.gaprate,y=self.labelsize*self.gaprate)
+                    
+                    self.height=self.on_class_label.winfo_reqheight()+self.labelsize*self.gaprate*2
+                    self.width=self.on_class_label.winfo_reqwidth()+self.labelsize*self.gaprate*4+self.labels[self.highlight].winfo_reqwidth()
+            elif(self.nowgroup in ['b','f']):
                 self.labelsize=self.b_size
                 if(not self.after_class and self.nowgroup!='f'):
                     self.labelsize*=self.onclass_rate
                 position=self.labelsize*self.gaprate
                 for i in self.labels:
                     if(i.cget('text')=='—'):
-                        i.config(text='|',font=('幼圆',int(self.labelsize/(len(i.cget('text'))**0.5))),wraplength=self.labelsize*2)
+                        i.config(text='|',font=('幼圆',int(self.labelsize/(len(i.cget('text'))**0.5))),wraplength=self.labelsize*1.5)
                     else:
-                        i.config(font=('幼圆',int(self.labelsize/(len(i.cget('text'))**0.5))),wraplength=self.labelsize*2)
-                    i.place(x=position,y=self.labelsize*self.gaprate)
+                        i.config(font=('幼圆',int(self.labelsize/(len(i.cget('text'))**0.5))),wraplength=self.labelsize*1.5,anchor='nw')
+                    if(self.nowgroup=='b'):
+                        i.place(x=position,y=self.labelsize*self.gaprate)
+                    else:
+                        i.place(x=position,y=self.labelsize/2+self.labelsize*self.gaprate*2)
                     position+=i.winfo_reqwidth()
                 if(self.after_class):
                     self.width=self.typical_size[0][0]
@@ -353,9 +462,9 @@ class calendar:
                 position=self.labelsize*self.gaprate
                 for i in self.labels:
                     if(i.cget('text')=='|'):
-                        i.config(text='—',font=('幼圆',int(self.labelsize/(len(i.cget('text'))**0.5))),wraplength=self.labelsize*2)
+                        i.config(text='—',font=('幼圆',int(self.labelsize/(len(i.cget('text'))**0.5))),wraplength=self.labelsize*1.5)
                     else:
-                        i.config(font=('幼圆',int(self.labelsize/(len(i.cget('text'))**0.5))),wraplength=self.labelsize*2)
+                        i.config(font=('幼圆',int(self.labelsize/(len(i.cget('text'))**0.5))),wraplength=self.labelsize*1.5,anchor='nw')
                     i.place(x=self.labelsize*self.gaprate,y=position)
                     position+=i.winfo_reqheight()
                 if(self.after_class):
@@ -367,14 +476,14 @@ class calendar:
 
             if(self.after_class):
                 if(self.nowgroup=='f'):
-                    self.isl_frame.draggable(self.mainland,self.canvas,[self.typical_size[0][2:4],self.typical_size[0][0:2],self.typical_size[0][2:4],[self.typical_size[0][0],500]])
+                    self.isl_frame.draggable(self.mainland,self.canvas,[self.typical_size[0][2:4],self.typical_size[0][0:2],self.typical_size[0][2:4],[self.typical_size[0][0],self.f_height]])
                 else:
-                    self.isl_frame.draggable(self.mainland,self.mainland,[self.typical_size[0][2:4],self.typical_size[0][0:2],self.typical_size[0][2:4],[self.typical_size[0][0],500]])
+                    self.isl_frame.draggable(self.mainland,self.mainland,[self.typical_size[0][2:4],self.typical_size[0][0:2],self.typical_size[0][2:4],[self.typical_size[0][0],self.f_height]])
             else:
                 if(self.nowgroup=='f'):
-                    self.isl_frame.draggable(self.mainland,self.canvas,[self.typical_size[1][2:4],self.typical_size[1][0:2],self.typical_size[1][2:4],[self.typical_size[0][0],500]])
+                    self.isl_frame.draggable(self.mainland,self.canvas,[self.typical_size[1][2:4],self.typical_size[1][0:2],self.typical_size[1][2:4],[self.typical_size[0][0],self.f_height]])
                 else:
-                    self.isl_frame.draggable(self.mainland,self.mainland,[self.typical_size[1][2:4],self.typical_size[1][0:2],self.typical_size[1][2:4],[self.typical_size[0][0],500]])
+                    self.isl_frame.draggable(self.mainland,self.mainland,[self.typical_size[1][2:4],self.typical_size[1][0:2],self.typical_size[1][2:4],[self.typical_size[0][0],self.f_height]])
 
             self.main_num=self.isl_frame.to_isl(self.mainland,self.width,self.height,self.nowgroup)
 
@@ -390,28 +499,32 @@ class calendar:
             else:
                 self.mainland.attributes('-topmost',bool(self.ontop_onclass))
 
-        if(self.counter==0 or self.after_class!=self.l_after_class or self.nowgroup!=self.l_nowgroup):
+        if(self.counter==0 or self.after_class!=self.l_after_class or self.nowgroup!=self.l_nowgroup or self.sec_past!=self.l_sec_past):
             #渲染进度条
             self.canvas.delete('all')
             if(self.nowgroup=='f'):
-                self.canvas.config(bg="black", width=int(self.typical_size[0][0]), height=self.labelsize*self.gaprate,highlightthickness=0)
+                self.canvas.config(bg="black", width=int(self.typical_size[0][0]), height=self.labelsize/2+self.labelsize*self.gaprate*2,highlightthickness=0)
             elif(not self.after_class and self.showt_onclass):
                 if(self.nowgroup=='b'):
                     self.canvas.config( bg="black", width=int(self.isl_frame.isls[self.main_num][1][0]), height=self.labelsize*self.gaprate,highlightthickness=0)
                 else:
                     self.canvas.config(bg="black", height=int(self.isl_frame.isls[self.main_num][1][1]), width=self.labelsize*self.gaprate,highlightthickness=0)
       
+        if(not self.after_class and self.sec_past!=self.l_sec_past and not self.sec_past):
+           self.on_class_label.place_forget()
+           self.on_class_label.pack_forget()
+
         #倒计时
-        if(self.counter%12==0 or self.nowgroup!=self.l_nowgroup):
+        if(self.counter%12==0 or self.nowgroup!=self.l_nowgroup or self.sec_past!=self.l_sec_past):
             if(self.nowgroup=='f'):
                 self.canvas.delete('all')
-                self.rect=self.canvas.create_rectangle(self.isl_frame.isls[self.main_num][1][0]/4, self.labelsize*self.gaprate*1/4,self.isl_frame.isls[self.main_num][1][0]*3/4, self.labelsize*self.gaprate*3/4, fill='grey',width=0)
+                self.rect=self.canvas.create_rectangle(self.isl_frame.isls[self.main_num][1][0]/4, self.labelsize*self.gaprate*1/4,self.isl_frame.isls[self.main_num][1][0]*3/4, self.labelsize*self.gaprate*3/4, fill='black',width=0)
                 self.canvas.place(x=0,y=0)
             if(self.after_class):
                 if(self.nowgroup in ['b','f']):
                     self.labelsize=self.b_size
                     self.vicelabel.destroy()
-                    if(self.showt_afterclass):
+                    if(self.showt_afterclass and not self.sec_past):
                         self.vicelabel=Label(self.viceland,text=self.time_left,font=('黑体',self.labelsize),fg='yellow',bg='black')
                     else:
                         self.vicelabel=Label(self.viceland,text=self.offw,font=('幼圆',self.labelsize),fg='yellow',bg='black')
@@ -420,17 +533,18 @@ class calendar:
                     self.vicelabel.destroy()
                     if(self.showt_afterclass):
                         ac_text=self.time_left[0]+self.time_left[1]+'\n\n'+self.time_left[3]+self.time_left[4]
-                        self.vicelabel=Label(self.viceland,text=ac_text,font=('黑体',self.labelsize),fg='yellow',bg='black',wraplength=self.labelsize*2)
+                        self.vicelabel=Label(self.viceland,text=ac_text,font=('黑体',self.labelsize),fg='yellow',bg='black',wraplength=self.labelsize*1.5)
                     else:
-                        self.vicelabel=Label(self.viceland,text=self.offw,font=('幼圆',self.labelsize),fg='yellow',bg='black',wraplength=self.labelsize*2)
+                        self.vicelabel=Label(self.viceland,text=self.offw,font=('幼圆',self.labelsize),fg='yellow',bg='black',wraplength=self.labelsize*1.5)
                 self.vicelabel.place(x=self.labelsize*self.gaprate,y=self.labelsize*self.gaprate)
             else:
-                self.canvas.delete('all')
                 if(self.nowgroup=='b'):
+                    self.canvas.delete('all')
                     w=self.isl_frame.isls[self.main_num][1][0]*self.sec_left/60/(self.off[self.off_i]-self.on[self.on_i-1])
                     self.rect=self.canvas.create_rectangle(self.isl_frame.isls[self.main_num][1][0]/2-w/2, self.labelsize*self.gaprate*1/4,self.isl_frame.isls[self.main_num][1][0]/2+w/2, self.labelsize*self.gaprate*3/4, fill='grey',width=0)
                     self.canvas.place(y=int(self.isl_frame.isls[self.main_num][1][1]-self.labelsize*self.gaprate))
                 elif(self.nowgroup!='f'):
+                    self.canvas.delete('all')
                     h=self.isl_frame.isls[self.main_num][1][1]*self.sec_left/60/(self.off[self.off_i]-self.on[self.on_i-1])
                     self.rect=self.canvas.create_rectangle(self.labelsize*self.gaprate*1/4,self.isl_frame.isls[self.main_num][1][1]/2-h/2, self.labelsize*self.gaprate*3/4,self.isl_frame.isls[self.main_num][1][1]/2+h/2,  fill='grey',width=0)
                     if(self.nowgroup=='a'):
@@ -438,7 +552,7 @@ class calendar:
                     elif(self.nowgroup=='c'):
                         self.canvas.place(x=0)
 
-        if(self.after_class!=self.l_after_class or self.counter==0 or self.nowgroup!=self.l_nowgroup):
+        if(self.after_class!=self.l_after_class or self.counter==0 or self.nowgroup!=self.l_nowgroup or self.sec_past!=self.l_sec_past):
             if(self.after_class):
                 self.viceland.attributes('-topmost',bool(self.ontop_afterclass))
                 if(self.nowgroup!='f'):
@@ -449,13 +563,47 @@ class calendar:
                 if(self.after_class!=self.l_after_class and self.counter!=0):
                     self.isl_frame.del_isl(self.viceland)
 
+        if(self.nowgroup!=self.l_nowgroup and self.nowgroup=='f'):
+            self.width=self.typical_size[0][0]
+            self.height=self.f_height
+            self.date_view=datetime.datetime.now()
+            self.t_date_view=self.date_view.strftime("%Y-%m-%d")
+            self.todate.config(text=self.date_now,font=('黑体',int(self.labelsize/2)),fg='white',bg='black',highlightcolor='yellow')
+            self.todate.pack(anchor='n',pady=1/2*self.labelsize*self.gaprate)
+            self.left_shift.config(text='<',font=('黑体',int(self.labelsize/2)),fg='white',bg='black',bd=0)
+            self.left_shift.place(x=self.width/2-self.todate.winfo_reqwidth()/2-self.left_shift.winfo_reqwidth()-self.labelsize*self.gaprate,y=0)
+            self.right_shift.config(text='>',font=('黑体',int(self.labelsize/2)),fg='white',bg='black',bd=0)
+            self.right_shift.place(x=self.width/2+self.todate.winfo_reqwidth()/2+self.labelsize*self.gaprate,y=0)
+
+            mem=(self.width-6*self.select_list[0].winfo_reqwidth())/7
+            for i in range(len(self.select_list)):
+                self.select_list[i].place(x=mem+i%6*(mem+self.select_list[0].winfo_reqwidth()),y=self.labelsize*(1+self.gaprate*2)+self.select_list[0].winfo_reqheight()+(self.labelsize/2+self.select_list[0].winfo_reqheight())*(i//6))
+                
+        if(self.nowgroup!=self.l_nowgroup and self.nowgroup!='f'):
+            self.todate.pack_forget()
+            self.left_shift.place_forget()
+            self.right_shift.place_forget()
+            for i in self.select_list:
+                i.place_forget()
+            self.class_change.append([self.date_now,self.changing_class])
+            templ=[]
+            tempr=[]
+            self.class_change.reverse()
+            for i in self.class_change:
+                if(not i[0] in templ):
+                    templ.append(i[0])
+                    tempr.append(i)
+            self.class_change=tempr
+
+            with open('data.json', 'w') as file:
+                json.dump(self.class_change, file)
+
+
         self.l_nowgroup=self.nowgroup
         self.nowgroup=self.isl_frame.isls[self.main_num][-1]
         self.l_moving=self.moving
         self.moving=self.isl_frame.changingpos
             
-
-        
     def refresh(self):
         while True:
             time.sleep(max(1/120-(time.time()-self.timer),0))
@@ -464,10 +612,10 @@ class calendar:
             self.counter+=1
 
             
-            if(self.counter%3600==0):
+            if(self.counter==0):
                 today=datetime.datetime.now()
                 to_week=datetime.date(today.year,today.month,today.day).weekday()
-                self.date_now=today.strftime("%Y/%m/%d")
+                self.date_now=today.strftime("%Y-%m-%d")
                 self.today_class=["周"]+[self.week[to_week]]+["|"]+self.classes[str(to_week+1)]
                 for i in self.class_change:
                     if(i[0]==self.date_now):
@@ -498,12 +646,14 @@ class calendar:
                             self.highlight=i
                             break
 
+
                 
             if(self.counter%12==0):
+                now_sec=datetime.datetime.now().hour*3600+datetime.datetime.now().minute*60+datetime.datetime.now().second
                 if(self.after_class):
-                    self.sec_left=self.on[self.on_i]*60-datetime.datetime.now().hour*3600-datetime.datetime.now().minute*60-datetime.datetime.now().second
+                    self.sec_left=self.on[self.on_i]*60-now_sec
                 else:
-                    self.sec_left=self.off[self.off_i]*60-datetime.datetime.now().hour*3600-datetime.datetime.now().minute*60-datetime.datetime.now().second
+                    self.sec_left=self.off[self.off_i]*60-now_sec
                 if(len(str(self.sec_left//60))==1):
                     self.time_left='0'+str(self.sec_left//60)+':'
                 else:
@@ -512,7 +662,12 @@ class calendar:
                     self.time_left+='0'+str(self.sec_left%60)
                 else:
                     self.time_left+=str(self.sec_left%60)
-
+                if(now_sec-self.on[self.on_i-1]*60 in [0,1,2,3,4,5] or now_sec-self.off[self.off_i-1]*60 in [0,1,2,3,4,5]):
+                    self.sec_past=True
+                else:
+                    self.sec_past=False
+                #print(self.sec_past)
+            
             self.draw()
             
             #self.mainframe.geometry(str(int(self.isl_frame.isls[self.main_num][1][0]))+'x'+str(int(self.isl_frame.isls[self.main_num][1][1]))+'+'+str(int(self.isl_frame.isls[self.main_num][1][2]))+'+'+str(int(self.isl_frame.isls[self.main_num][1][3])))
@@ -525,12 +680,10 @@ class calendar:
             #    print(self.isl_frame.isls)
             
             self.l_after_class=self.after_class
+            self.l_sec_past=self.sec_past
                 
             
-            
-            
-                
-                
+
     
 classform=calendar()
 classform.start()
