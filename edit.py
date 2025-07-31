@@ -406,20 +406,20 @@ def create_time_settings(parent):
     def save_start_times(listbox):
         """保存上课时间到列表"""
         global class_start_times
-        class_start_times = [listbox.get(i) for i in range(listbox.size())]
+        class_start_times = [listbox.get(i).split(":") for i in range(listbox.size())]
         config["开始时间"]=class_start_times
         file = open("config.json", "w", encoding='utf-8')
-        json.dump(config,file)
+        json.dump(config,file,indent=4,ensure_ascii=False)
         file.close()
         messagebox.showinfo("保存成功", "已保存上课时间")
 
     def save_end_times(listbox):
         """保存下课时间到列表"""
         global class_end_times
-        class_end_times = [listbox.get(i) for i in range(listbox.size())]
+        class_end_times = [listbox.get(i).split(":") for i in range(listbox.size())]
         config["结束时间"]=class_end_times
         file = open("config.json", "w", encoding='utf-8')
-        json.dump(config,file)
+        json.dump(config,file,indent=4,ensure_ascii=False)
         file.close()
         messagebox.showinfo("保存成功","已保存下课时间")
     
