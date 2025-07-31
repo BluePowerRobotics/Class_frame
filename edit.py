@@ -19,7 +19,7 @@ def save_settings(entries):
         config[key] = [text]
     #写入文件
     file = open("config.json", "w", encoding='utf-8')
-    json.dump(config,file)
+    json.dump(config,file,indent=4,ensure_ascii=False)
     file.close()
     messagebox.showinfo("保存成功", "参数设置已保存！")
 
@@ -43,7 +43,7 @@ def save_schedule():
     #写入文件
     config["日程表"]=schedule_data
     file = open("config.json", "w", encoding='utf-8')
-    json.dump(config,file)
+    json.dump(config,file,indent=4,ensure_ascii=False)
     file.close()
     # 显示保存成功消息
     messagebox.showinfo("保存成功", "课表数据已保存！")
