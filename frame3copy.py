@@ -204,9 +204,9 @@ class calendar:
             self.on=text["开始时间"]
             self.off=text["结束时间"]
             for i in range(len(self.on)):
-                self.on[i]=self.on[i][0]*60+self.on[i][1]
+                self.on[i]=int(self.on[i][0])*60+int(self.on[i][1])
             for i in range(len(self.off)):
-                self.off[i]=self.off[i][0]*60+self.off[i][1]
+                self.off[i]=int(self.off[i][0])*60+int(self.off[i][1])
 
 
             self.onw=text["开始提示"][0]
@@ -589,8 +589,10 @@ class calendar:
             templ=[]
             tempr=[]
             self.class_change.reverse()
+            format_pattern = '%Y-%m-%d'
             for i in self.class_change:
-                if(not i[0] in templ):
+                difference = (datetime.datetime.strptime(i[0] , format_pattern) - datetime.datetime.strptime(self.date_now, format_pattern))
+                if(not i[0] in templ and difference.days>=0):
                     templ.append(i[0])
                     tempr.append(i)
             self.class_change=tempr
