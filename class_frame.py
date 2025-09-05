@@ -1,3 +1,4 @@
+import os
 from tkinter import *
 import time
 import json
@@ -608,6 +609,9 @@ class calendar:
             
     def refresh(self):
         while True:
+            if os.path.exists('stop_signal.txt'):
+                print("检测到停止信号，程序即将退出。")
+                break
             time.sleep(max(1/120-(time.time()-self.timer),0))
             #print(int((time.time()-self.timer)*1000))
             self.timer=time.time()
@@ -686,7 +690,9 @@ class calendar:
                 
             
 
-    
+if os.path.exists('stop_signal.txt'):
+    #清理已经使用的停止信号
+    os.remove('stop_signal.txt')
 classform=calendar()
 classform.start()
 classform.refresh()
