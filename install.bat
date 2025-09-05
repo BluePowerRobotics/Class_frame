@@ -1,0 +1,1 @@
+%~dp0installer.exe  /passive TargetDir=%~dp0python
