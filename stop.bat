@@ -1,2 +1,2 @@
-echo stop > %~dp0stop_signal.txt
+echo stop > %~dp0.stop_signal
 exit

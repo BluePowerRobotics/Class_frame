@@ -466,9 +466,9 @@ class calendar:
                 position=self.labelsize*self.gaprate
                 for i in self.labels:
                     if(i.cget('text')=='|'):
-                        i.config(text='—',font=('幼圆',int(self.labelsize/(len(i.cget('text'))**0.5))),wraplength=self.labelsize*1.5)
+                        i.config(text='—',font=('幼圆',int(self.labelsize/(len(i.cget('text'))**0.7))),wraplength=self.labelsize*1.7)
                     else:
-                        i.config(font=('幼圆',int(self.labelsize/(len(i.cget('text'))**0.5))),wraplength=self.labelsize*1.5,anchor='nw')
+                        i.config(font=('幼圆',int(self.labelsize/(len(i.cget('text'))**0.7))),wraplength=self.labelsize*1.7,anchor='nw')
                     i.place(x=self.labelsize*self.gaprate,y=position)
                     position+=i.winfo_reqheight()
                 if(self.after_class):
@@ -612,8 +612,7 @@ class calendar:
             
     def refresh(self):
         while True:
-            if os.path.exists('stop_signal.txt'):
-                print("检测到停止信号，程序即将退出。")
+            if os.path.exists('.stop_signal'):
                 break
             time.sleep(max(1/120-(time.time()-self.timer),0))
             #print(int((time.time()-self.timer)*1000))
