@@ -701,9 +701,9 @@ class calendar:
                 
             
 
-if os.path.exists('stop_signal.txt'):
+if os.path.exists('.stop_signal'):
     #清理已经使用的停止信号
-    os.remove('stop_signal.txt')
+    os.remove('.stop_signal')
 classform=calendar()
 classform.start()
 classform.refresh()
