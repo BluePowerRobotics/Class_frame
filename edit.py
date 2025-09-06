@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, Scrollbar, messagebox, simpledialog, Menu
 import json
+import datetime
 
 #row+1为实际行数
 
@@ -526,6 +527,293 @@ def create_settings_tab(parent):
     return settings_notebook
 
 
+
+def create_swap_tab(parent):
+    """创建课程对调页面"""
+    global left_year_var, left_month_var, left_day_var, left_schedule_frame
+    global right_year_var, right_month_var, right_day_var, right_schedule_frame
+
+    frame = ttk.Frame(parent, padding=20)
+    
+    # 创建左右分栏
+    left_frame = ttk.Frame(frame)
+    right_frame = ttk.Frame(frame)
+    
+    # 获取今天的日期
+    today = datetime.date.today()
+    
+    # 左侧日期选择
+    left_date_frame = ttk.Frame(left_frame)
+    left_date_frame.pack(pady=10)
+    
+    # 年份选择
+    left_year_var = tk.StringVar(value=str(today.year))
+    left_year_combo = ttk.Combobox(left_date_frame, textvariable=left_year_var, width=8, state="readonly")
+    left_year_combo['values'] = [str(year) for year in range(today.year-1, today.year+3)]
+    left_year_combo.pack(side=tk.LEFT, padx=5)
+    
+    # 月份选择
+    left_month_var = tk.StringVar(value=str(today.month))
+    left_month_combo = ttk.Combobox(left_date_frame, textvariable=left_month_var, width=6, state="readonly")
+    left_month_combo['values'] = [str(month) for month in range(1, 13)]
+    left_month_combo.pack(side=tk.LEFT, padx=5)
+    
+    # 日期选择
+    left_day_var = tk.StringVar(value=str(today.day))
+    left_day_combo = ttk.Combobox(left_date_frame, textvariable=left_day_var, width=6, state="readonly")
+    left_day_combo['values'] = [str(day) for day in range(1, 32)]
+    left_day_combo.pack(side=tk.LEFT, padx=5)
+    
+    # 左侧课表显示区域（完全按照课表页面的方式）
+    left_schedule_container = ttk.Frame(left_frame)
+    left_schedule_container.pack(fill="both", expand=True, pady=10)
+    
+    # 创建Canvas和滚动条（完全按照课表页面的方式）
+    left_canvas = tk.Canvas(left_schedule_container)
+    left_scrollbar = ttk.Scrollbar(left_schedule_container, orient="vertical", command=left_canvas.yview)
+    left_schedule_frame = ttk.Frame(left_canvas)
+    
+    # 配置Canvas（完全按照课表页面的方式）
+    left_canvas.configure(yscrollcommand=left_scrollbar.set)
+    left_canvas.create_window((0, 0), window=left_schedule_frame, anchor="nw")
+    
+    # 布局Canvas和滚动条（完全按照课表页面的方式）
+    left_canvas.grid(row=0, column=0, sticky="nsew")
+    left_scrollbar.grid(row=0, column=1, sticky="ns")
+    
+    # 配置网格权重（完全按照课表页面的方式）
+    left_schedule_container.grid_rowconfigure(0, weight=1)
+    left_schedule_container.grid_columnconfigure(0, weight=1)
+    
+    # 右侧日期选择
+    right_date_frame = ttk.Frame(right_frame)
+    right_date_frame.pack(pady=10)
+    
+    # 年份选择
+    right_year_var = tk.StringVar(value=str(today.year))
+    right_year_combo = ttk.Combobox(right_date_frame, textvariable=right_year_var, width=8, state="readonly")
+    right_year_combo['values'] = [str(year) for year in range(today.year-1, today.year+3)]
+    right_year_combo.pack(side=tk.LEFT, padx=5)
+    
+    # 月份选择
+    right_month_var = tk.StringVar(value=str(today.month))
+    right_month_combo = ttk.Combobox(right_date_frame, textvariable=right_month_var, width=6, state="readonly")
+    right_month_combo['values'] = [str(month) for month in range(1, 13)]
+    right_month_combo.pack(side=tk.LEFT, padx=5)
+    
+    # 日期选择
+    right_day_var = tk.StringVar(value=str(today.day))
+    right_day_combo = ttk.Combobox(right_date_frame, textvariable=right_day_var, width=6, state="readonly")
+    right_day_combo['values'] = [str(day) for day in range(1, 32)]
+    right_day_combo.pack(side=tk.LEFT, padx=5)
+    
+    # 右侧课表显示区域（完全按照课表页面的方式）
+    right_schedule_container = ttk.Frame(right_frame)
+    right_schedule_container.pack(fill="both", expand=True, pady=10)
+    
+    # 创建Canvas和滚动条（完全按照课表页面的方式）
+    right_canvas = tk.Canvas(right_schedule_container)
+    right_scrollbar = ttk.Scrollbar(right_schedule_container, orient="vertical", command=right_canvas.yview)
+    right_schedule_frame = ttk.Frame(right_canvas)
+    
+    # 配置Canvas（完全按照课表页面的方式）
+    right_canvas.configure(yscrollcommand=right_scrollbar.set)
+    right_canvas.create_window((0, 0), window=right_schedule_frame, anchor="nw")
+    
+    # 布局Canvas和滚动条（完全按照课表页面的方式）
+    right_canvas.grid(row=0, column=0, sticky="nsew")
+    right_scrollbar.grid(row=0, column=1, sticky="ns")
+    
+    # 配置网格权重（完全按照课表页面的方式）
+    right_schedule_container.grid_rowconfigure(0, weight=1)
+    right_schedule_container.grid_columnconfigure(0, weight=1)
+    
+    # 底部按钮
+    button_frame = ttk.Frame(frame)
+    ttk.Button(button_frame, text="对调课程", command=lambda: swap_selected_courses()).pack(pady=20)
+    
+    # 布局
+    left_frame.grid(row=0, column=0, padx=20, sticky="nsew")
+    right_frame.grid(row=0, column=1, padx=20, sticky="nsew")
+    button_frame.grid(row=1, column=0, columnspan=2, pady=20)
+    
+    frame.grid_rowconfigure(0, weight=1)
+    frame.grid_columnconfigure(0, weight=1)
+    frame.grid_columnconfigure(1, weight=1)
+    
+    # 绑定日期变化事件
+    left_year_combo.bind('<<ComboboxSelected>>', lambda e: update_schedule_display('left'))
+    left_month_combo.bind('<<ComboboxSelected>>', lambda e: update_schedule_display('left'))
+    left_day_combo.bind('<<ComboboxSelected>>', lambda e: update_schedule_display('left'))
+    right_year_combo.bind('<<ComboboxSelected>>', lambda e: update_schedule_display('right'))
+    right_month_combo.bind('<<ComboboxSelected>>', lambda e: update_schedule_display('right'))
+    right_day_combo.bind('<<ComboboxSelected>>', lambda e: update_schedule_display('right'))
+    
+    # 初始显示今天的课表
+    update_schedule_display('left')
+    update_schedule_display('right')
+    
+    return frame
+
+
+def load_schedule_for_date(date_str):
+    """根据日期加载课表"""
+    # 从config.json读取基础课表
+    with open('config.json', 'r', encoding='utf-8') as f:
+        config = json.load(f)
+    
+    # 计算星期几
+    date_obj = datetime.datetime.strptime(date_str, '%Y-%m-%d')
+    weekday = date_obj.weekday() + 1  # 1-7对应周一到周日
+    
+    # 获取基础课表
+    base_schedule = ["周"] + [["一","二","三","四","五","六","日"][weekday-1]] + ["|"] + config["日程表"][str(weekday)]
+    
+    # 从data.json读取修改记录
+    try:
+        with open('data.json', 'r', encoding='utf-8') as f:
+            class_change = json.load(f)
+        
+        # 查找是否有该日期的修改记录
+        for record in class_change:
+            if record[0] == date_str:
+                return record[1]
+    except:
+        pass
+    
+    return base_schedule
+
+
+def update_schedule_display(side):
+    """更新指定侧的课表显示"""
+    try:
+        if side == 'left':
+            date_str = f"{left_year_var.get()}-{left_month_var.get().zfill(2)}-{left_day_var.get().zfill(2)}"
+            frame = left_schedule_frame
+        else:
+            date_str = f"{right_year_var.get()}-{right_month_var.get().zfill(2)}-{right_day_var.get().zfill(2)}"
+            frame = right_schedule_frame
+        
+        # 清除现有内容
+        for widget in frame.winfo_children():
+            widget.destroy()
+        
+        # 获取课表
+        schedule = load_schedule_for_date(date_str)
+        
+        # 创建单选按钮组
+        if side == 'left':
+            if not hasattr(update_schedule_display, 'left_radio_var'):
+                update_schedule_display.left_radio_var = tk.StringVar()
+            radio_var = update_schedule_display.left_radio_var
+        else:
+            if not hasattr(update_schedule_display, 'right_radio_var'):
+                update_schedule_display.right_radio_var = tk.StringVar()
+            radio_var = update_schedule_display.right_radio_var
+        
+        # 显示课表
+        for i, course in enumerate(schedule):
+            if course not in ['周', '|'] and course not in ['一', '二', '三', '四', '五', '六', '日']:
+                # 创建课程行
+                course_frame = ttk.Frame(frame)
+                course_frame.pack(fill="x", pady=2)
+                
+                # 单选按钮
+                radio = ttk.Radiobutton(course_frame, variable=radio_var, value=str(i), text=course)
+                radio.pack(side="left", padx=5)
+        
+        # 添加"全部"选项
+        all_frame = ttk.Frame(frame)
+        all_frame.pack(fill="x", pady=5)
+        
+        all_radio = ttk.Radiobutton(all_frame, variable=radio_var, value="all", text="全部")
+        all_radio.pack(side="left", padx=5)
+        
+        # 更新滚动区域（完全按照课表页面的方式）
+        frame.bind("<Configure>", lambda e: frame.master.configure(scrollregion=frame.master.bbox("all")))
+        
+    except Exception as e:
+        print(f"更新课表显示失败: {e}")
+
+
+def swap_selected_courses():
+    """对调选中的课程"""
+    try:
+        # 获取左右两侧的日期
+        left_date = f"{left_year_var.get()}-{left_month_var.get().zfill(2)}-{left_day_var.get().zfill(2)}"
+        right_date = f"{right_year_var.get()}-{right_month_var.get().zfill(2)}-{right_day_var.get().zfill(2)}"
+        
+        # 验证日期格式
+        datetime.datetime.strptime(left_date, '%Y-%m-%d')
+        datetime.datetime.strptime(right_date, '%Y-%m-%d')
+        
+        # 获取两个日期的课表
+        left_schedule = load_schedule_for_date(left_date)
+        right_schedule = load_schedule_for_date(right_date)
+        
+        # 获取选中的课程
+        left_selected = update_schedule_display.left_radio_var.get()
+        right_selected = update_schedule_display.right_radio_var.get()
+        
+        # 检查是否选择了课程
+        if not left_selected and not right_selected:
+            messagebox.showwarning("警告", "请至少选择一侧的课程进行对调")
+            return
+        
+        # 对调选中的课程
+        if left_selected == "all" and right_selected == "all":
+            # 对调整天的课程
+            left_schedule, right_schedule = right_schedule, left_schedule
+        elif left_selected == "all":
+            # 左侧选择全部，右侧选择特定课程
+            messagebox.showwarning("警告", "不能同时选择\"全部\"和特定课程")
+            return
+        elif right_selected == "all":
+            # 右侧选择全部，左侧选择特定课程
+            messagebox.showwarning("警告", "不能同时选择\"全部\"和特定课程")
+            return
+        else:
+            # 对调特定课程
+            left_idx = int(left_selected)
+            right_idx = int(right_selected)
+            
+            if left_idx < len(left_schedule) and right_idx < len(right_schedule):
+                left_schedule[left_idx], right_schedule[right_idx] = right_schedule[right_idx], left_schedule[left_idx]
+            else:
+                messagebox.showerror("错误", "课程索引超出范围")
+                return
+        
+        # 读取现有的修改记录
+        try:
+            with open('data.json', 'r', encoding='utf-8') as f:
+                class_change = json.load(f)
+        except:
+            class_change = []
+        
+        # 更新或添加记录
+        # 先删除已存在的记录
+        class_change = [record for record in class_change if record[0] not in [left_date, right_date]]
+        
+        # 添加新的对调记录
+        class_change.append([left_date, left_schedule])
+        class_change.append([right_date, right_schedule])
+        
+        # 写回文件
+        with open('data.json', 'w', encoding='utf-8') as f:
+            json.dump(class_change, f, ensure_ascii=False, indent=2)
+        
+        messagebox.showinfo("成功", f"已对调 {left_date} 和 {right_date} 的选中课程！")
+        
+        # 刷新显示
+        update_schedule_display('left')
+        update_schedule_display('right')
+        
+    except ValueError as e:
+        messagebox.showerror("错误", "日期格式不正确，请检查年月日选择")
+    except Exception as e:
+        messagebox.showerror("错误", f"对调失败：{str(e)}")
+
+
 #读取json文件
 with open('config.json', 'r', encoding='utf-8') as file:
     config = json.load(file)
@@ -561,6 +849,10 @@ notebook.add(schedule_frame, text="课表")
 # 创建设置页
 settings_frame = create_settings_tab(notebook)
 notebook.add(settings_frame, text="设置")
+
+# 创建课程对调页
+swap_frame = create_swap_tab(notebook)
+notebook.add(swap_frame, text="对调")
 
 # 运行主循环
 root.mainloop()
