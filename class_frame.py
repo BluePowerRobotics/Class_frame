@@ -212,8 +212,11 @@ class calendar:
 
             self.onw=text["开始提示"][0]
             self.offw=text["结束提示"][0]
-            self.nowgroup=text["默认显示位置"][0]
-            self.l_nowgroup=text["默认显示位置"][0]
+            self.onclass_default_pos=text["上课默认位置"][0]
+            self.offclass_default_pos=text["下课默认位置"][0]
+            # 初始位置根据当前状态决定
+            self.nowgroup=self.offclass_default_pos  # 默认下课状态
+            self.l_nowgroup=self.offclass_default_pos
             self.showt_afterclass=text["下课显示倒计时"][0]
             self.showt_onclass=text["上课显示倒计条"][0]
             self.ontop_afterclass=text["下课置顶"][0]
@@ -643,6 +646,15 @@ class calendar:
                         break
 
                 self.after_class=self.on_i==self.off_i
+                
+                # 自动切换显示位置
+                if self.after_class != self.l_after_class:
+                    if self.after_class:
+                        # 下课状态，切换到下课默认位置
+                        self.nowgroup = self.offclass_default_pos
+                    else:
+                        # 上课状态，切换到上课默认位置
+                        self.nowgroup = self.onclass_default_pos
                 
                 self.highlight=self.off_i
                 for i in range(len(self.today_class)):
