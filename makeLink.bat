@@ -37,12 +37,12 @@ rem === 当前脚本所在目录 ===
 set "SCRIPT_DIR=%~dp0"
 echo script dir: %SCRIPT_DIR%
 
-rem === 删除已有目标（可能是链接或目录） ===
-if exist "%SCRIPT_DIR%python" (
-    echo delete existing python dir or link…
-    rd /s /q "%SCRIPT_DIR%python" 2>nul
-    del "%SCRIPT_DIR%python" 2>nul
-)
+@REM rem === 删除已有目标（可能是链接或目录） ===
+@REM if exist "%SCRIPT_DIR%python" (
+@REM     echo delete existing python dir or link…
+@REM     rd /s /q "%SCRIPT_DIR%python" 2>nul
+@REM     del "%SCRIPT_DIR%python" 2>nul
+@REM )
 
 rem === 尝试创建符号链接 ===
 mklink /D "%SCRIPT_DIR%python" "%PY_DIR%" >nul 2>&1
@@ -65,5 +65,15 @@ if errorlevel 1 (
 ) else (
     echo create 'python' link successfully -> %PY_DIR%
 )
-
+rem === try to copy py.exe in python dir to python.exe ===
+if exist "%SCRIPT_DIR%python\py.exe" (
+    echo copy py.exe to python.exe...
+    copy "%SCRIPT_DIR%python\py.exe" "%SCRIPT_DIR%python\python.exe" /Y >nul 2>&1
+    if errorlevel 1 (
+        echo ERROR:copy py.exe to python.exe failed.
+        exit /b 1
+    )
+) else (
+    echo py.exe not found in python dir.
+)
 echo succeed.

@@ -1,2 +1,2 @@
-start %~dp0python\pyw.exe %~dp0setClass.py
+start %~dp0python\pythonw.exe %~dp0setClass.py
 exit

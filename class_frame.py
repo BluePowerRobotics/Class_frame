@@ -228,7 +228,7 @@ class calendar:
         with open('data.json', 'r') as file:
             self.class_change= json.load(file)
             
-                   
+            
     def start(self):
         self.mainland=Tk()
         self.isl_frame=movements()

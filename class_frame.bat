@@ -1,1 +1,1 @@
-start %~dp0python\pyw.exe %~dp0class_frame.py
+start %~dp0python\pythonw.exe %~dp0class_frame.py
