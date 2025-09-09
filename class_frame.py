@@ -225,7 +225,7 @@ class calendar:
             self.onclass_rate=text["上课放大倍率"][0]
             self.ac_size=text["竖直显示的文字大小"][0]
 
-        with open('data.json', 'r') as file:
+        with open('data.json', 'r', encoding='utf-8') as file:
             self.class_change= json.load(file)
             
             
@@ -601,8 +601,8 @@ class calendar:
                     tempr.append(i)
             self.class_change=tempr
 
-            with open('data.json', 'w') as file:
-                json.dump(self.class_change, file)
+            with open('data.json', 'w', encoding='utf-8') as file:
+                json.dump(self.class_change, file, ensure_ascii=False, indent=2)
 
 
         self.l_nowgroup=self.nowgroup
