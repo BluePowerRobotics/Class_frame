@@ -1,0 +1,21 @@
+<package>
+    <job id="js">
+        <script language="JScript">
+            var ws = new ActiveXObject("WScript.Shell");
+            var fso = new ActiveXObject("Scripting.FileSystemObject");
+            if (fso.FileExists("D:\\Python\\pythonw.exe")) {
+                ws.Run("D:\\Python\\pythonw.exe class_frame.py");
+                WScript.Quit(0);
+            }
+            try{
+                ws.Exec("python --version");
+                ws.Run("pythonw class_frame.py");
+                WScript.Quit(0);
+            } catch (e) {
+                ws.Run('installer.exe /passive "TargetDir=D:\\Python"', 1, true);
+                ws.Run("D:\\Python\\pythonw.exe class_frame.py");
+                WScript.Quit(0);
+            }
+        </script>
+    </job>
+</package>
