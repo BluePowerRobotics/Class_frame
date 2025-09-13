@@ -69,6 +69,7 @@ rem === try to copy py.exe in python dir to python.exe ===
 if exist "%SCRIPT_DIR%python\py.exe" (
     echo copy py.exe to python.exe...
     copy "%SCRIPT_DIR%python\py.exe" "%SCRIPT_DIR%python\python.exe" /Y >nul 2>&1
+    copy "%SCRIPT_DIR%python\pyw.exe" "%SCRIPT_DIR%python\pythonw.exe" /Y >nul 2>&1
     if errorlevel 1 (
         echo ERROR:copy py.exe to python.exe failed.
         exit /b 1
