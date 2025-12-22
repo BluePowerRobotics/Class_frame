@@ -46,6 +46,12 @@ class movements():
             elif(self.isls[i][-1]=='f'):
                 self.isls[i][1][2]=self.screen_width/2-self.isls[i][1][0]/2
                 self.isls[i][1][3]=self.screen_height/2-self.isls[i][1][1]/2
+            elif(self.isls[i][-1]=='u'):
+                # 'u' 位置：确保大小正确（屏幕宽度，高度8px）
+                self.isls[i][1][0]=self.screen_width
+                self.isls[i][1][1]=8
+                self.isls[i][1][2]=0
+                self.isls[i][1][3]=0
             else:
                 if(self.isls[i][0]!=0):
                     if(self.isls[i][-1]=='da'):
@@ -59,6 +65,9 @@ class movements():
                         self.isls[i][1][0]=1
                     elif(self.isls[i][-1]=='df'):
                         self.isls[i][1]=[1,1,self.screen_width/2,self.screen_height/2]
+                    elif(self.isls[i][-1]=='du'):
+                        self.isls[i][1][3]+=self.isls[i][1][1]/2
+                        self.isls[i][1][1]=1
     
     def refresh_isl(self):
         if(self.movingisl!=[]):
@@ -67,12 +76,19 @@ class movements():
                     self.isls[i][2][2]=self.movingisl[1]+self.mousex
                     self.isls[i][2][3]=self.movingisl[2]+self.mousey
                     break
-            if(self.mousex<self.screen_width/4):
+            if(self.mousey<5):
+                group='u'
+                groupnum=4
+                # 'u' 位置：使用屏幕宽度和高度8
+                self.to_isl(self.movingisl[0],self.screen_width,8,group)
+            elif(self.mousex<self.screen_width/4):
                 group='a'
                 groupnum=0
+                self.to_isl(self.movingisl[0],self.movingisl[3][groupnum][0],self.movingisl[3][groupnum][1],group)
             elif(self.mousex>self.screen_width*3/4):
                 group='c'
                 groupnum=2
+                self.to_isl(self.movingisl[0],self.movingisl[3][groupnum][0],self.movingisl[3][groupnum][1],group)
             else:
                 if(self.mousey<self.screen_height/4):
                     group='b'
@@ -80,7 +96,7 @@ class movements():
                 else:
                     group='f'
                     groupnum=3
-            self.to_isl(self.movingisl[0],self.movingisl[3][groupnum][0],self.movingisl[3][groupnum][1],group)
+                self.to_isl(self.movingisl[0],self.movingisl[3][groupnum][0],self.movingisl[3][groupnum][1],group)
 
         for i in range(len(self.isls)):
             if(self.isls[i][0]!=0):
@@ -122,6 +138,8 @@ class movements():
                 self.isls[-1][2]=[l,1,self.isls[-1][1][2],self.isls[-1][1][3]+w/2]
             elif(group=='f'):
                 self.isls[-1][2]=[1,1,self.screen_width/2,self.screen_height/2]
+            elif(group=='u'):
+                self.isls[-1][2]=[self.screen_width,8,0,0]
             self.isls[-1][3]=self.isls[-1][2]
         else:
             self.isls[formernum][1][0]=l
@@ -365,7 +383,16 @@ class calendar:
 
             #渲染文字
             self.labels=[]        
-            if(self.nowgroup=='b'):
+            if(self.nowgroup=='u'):
+                # 'u' 位置：只显示进度条，隐藏所有标签
+                self.width=self.isl_frame.screen_width
+                self.height=8  # 很薄的高度
+                # 创建空标签列表，但不显示
+                for x in range(len(self.today_class)):
+                    class_lab=Label(self.mainland,text='')
+                    class_lab.place_forget()
+                    self.labels.append(class_lab)
+            elif(self.nowgroup=='b'):
                 self.labelsize=self.b_size
                 if(not self.after_class):
                     self.labelsize*=self.onclass_rate
@@ -406,16 +433,28 @@ class calendar:
                 self.height=position+self.labelsize*self.gaprate
             
         if(self.counter==0 or self.after_class!=self.l_after_class or self.nowgroup!=self.l_nowgroup or self.sec_past!=self.l_sec_past):
-            for i in range(len(self.labels)):
-                if(i==self.highlight):
-                    self.labels[i].config(fg='yellow')
-                else:
-                    if(self.sec_past and self.nowgroup!='f' and not self.after_class):
-                        self.labels[i].place_forget()
-                        self.labels[i].pack_forget()
+            if(self.nowgroup=='u'):
+                # 'u' 位置：隐藏所有标签和on_class_label
+                for i in range(len(self.labels)):
+                    self.labels[i].place_forget()
+                    self.labels[i].pack_forget()
+                # 确保on_class_label也被隐藏
+                try:
+                    self.on_class_label.place_forget()
+                    self.on_class_label.pack_forget()
+                except:
+                    pass
+            else:
+                for i in range(len(self.labels)):
+                    if(i==self.highlight):
+                        self.labels[i].config(fg='yellow')
                     else:
-                        self.labels[i].config(fg='white')
-            if(self.sec_past and self.nowgroup!='f' and not self.after_class):
+                        if(self.sec_past and self.nowgroup!='f' and not self.after_class):
+                            self.labels[i].place_forget()
+                            self.labels[i].pack_forget()
+                        else:
+                            self.labels[i].config(fg='white')
+            if(self.sec_past and self.nowgroup!='f' and self.nowgroup!='u' and not self.after_class):
                 if(self.nowgroup=='b'):
                     self.labelsize=self.b_size*self.onclass_rate
                     self.labels[self.highlight].config(font=('幼圆',int(self.labelsize/(len(self.labels[self.highlight].cget('text'))**0.5))),wraplength=self.labelsize*1.5)
@@ -459,7 +498,7 @@ class calendar:
                 else:
                     self.width=self.typical_size[1][0]
                     self.height=self.typical_size[1][1]
-            else:
+            elif(self.nowgroup!='u'):
                 self.labelsize=self.ac_size
                 if(not self.after_class):
                     self.labelsize*=self.onclass_rate
@@ -478,16 +517,20 @@ class calendar:
                     self.width=self.typical_size[1][2]
                     self.height=self.typical_size[1][3]
 
-            if(self.after_class):
-                if(self.nowgroup=='f'):
-                    self.isl_frame.draggable(self.mainland,self.canvas,[self.typical_size[0][2:4],self.typical_size[0][0:2],self.typical_size[0][2:4],[self.typical_size[0][0],self.f_height]])
+            if(self.nowgroup!='u'):
+                if(self.after_class):
+                    if(self.nowgroup=='f'):
+                        self.isl_frame.draggable(self.mainland,self.canvas,[self.typical_size[0][2:4],self.typical_size[0][0:2],self.typical_size[0][2:4],[self.typical_size[0][0],self.f_height],[self.isl_frame.screen_width,8]])
+                    else:
+                        self.isl_frame.draggable(self.mainland,self.mainland,[self.typical_size[0][2:4],self.typical_size[0][0:2],self.typical_size[0][2:4],[self.typical_size[0][0],self.f_height],[self.isl_frame.screen_width,8]])
                 else:
-                    self.isl_frame.draggable(self.mainland,self.mainland,[self.typical_size[0][2:4],self.typical_size[0][0:2],self.typical_size[0][2:4],[self.typical_size[0][0],self.f_height]])
+                    if(self.nowgroup=='f'):
+                        self.isl_frame.draggable(self.mainland,self.canvas,[self.typical_size[1][2:4],self.typical_size[1][0:2],self.typical_size[1][2:4],[self.typical_size[0][0],self.f_height],[self.isl_frame.screen_width,8]])
+                    else:
+                        self.isl_frame.draggable(self.mainland,self.mainland,[self.typical_size[1][2:4],self.typical_size[1][0:2],self.typical_size[1][2:4],[self.typical_size[0][0],self.f_height],[self.isl_frame.screen_width,8]])
             else:
-                if(self.nowgroup=='f'):
-                    self.isl_frame.draggable(self.mainland,self.canvas,[self.typical_size[1][2:4],self.typical_size[1][0:2],self.typical_size[1][2:4],[self.typical_size[0][0],self.f_height]])
-                else:
-                    self.isl_frame.draggable(self.mainland,self.mainland,[self.typical_size[1][2:4],self.typical_size[1][0:2],self.typical_size[1][2:4],[self.typical_size[0][0],self.f_height]])
+                # 'u' 位置：可拖动，hope列表包含5个元素（a,b,c,f,u），高度8px
+                self.isl_frame.draggable(self.mainland,self.canvas,[[self.isl_frame.screen_width,8],[self.isl_frame.screen_width,8],[self.isl_frame.screen_width,8],[self.isl_frame.screen_width,8],[self.isl_frame.screen_width,8]])
 
             self.main_num=self.isl_frame.to_isl(self.mainland,self.width,self.height,self.nowgroup)
 
@@ -506,7 +549,11 @@ class calendar:
         if(self.counter==0 or self.after_class!=self.l_after_class or self.nowgroup!=self.l_nowgroup or self.sec_past!=self.l_sec_past):
             #渲染进度条
             self.canvas.delete('all')
-            if(self.nowgroup=='f'):
+            if(self.nowgroup=='u'):
+                # 'u' 位置：全屏宽度，高度8px（横向，类似'b'位置）
+                self.canvas.config(bg="black", width=int(self.isl_frame.screen_width), height=8,highlightthickness=0)
+                self.canvas.place(x=0,y=0)
+            elif(self.nowgroup=='f'):
                 self.canvas.config(bg="black", width=int(self.typical_size[0][0]), height=self.labelsize/2+self.labelsize*self.gaprate*2,highlightthickness=0)
             elif(not self.after_class and self.showt_onclass):
                 if(self.nowgroup=='b'):
@@ -514,17 +561,26 @@ class calendar:
                 else:
                     self.canvas.config(bg="black", height=int(self.isl_frame.isls[self.main_num][1][1]), width=self.labelsize*self.gaprate,highlightthickness=0)
       
-        if(not self.after_class and self.sec_past!=self.l_sec_past and not self.sec_past):
+        if(not self.after_class and self.sec_past!=self.l_sec_past and not self.sec_past and self.nowgroup!='u'):
            self.on_class_label.place_forget()
            self.on_class_label.pack_forget()
 
         #倒计时
         if(self.counter%12==0 or self.nowgroup!=self.l_nowgroup or self.sec_past!=self.l_sec_past):
-            if(self.nowgroup=='f'):
+            if(self.nowgroup=='u'):
+                # 'u' 位置：只显示横向进度条（类似'b'位置）
+                self.canvas.delete('all')
+                if(not self.after_class):
+                    # 上课时显示横向进度条
+                    w=self.isl_frame.screen_width*self.sec_left/60/(self.off[self.off_i]-self.on[self.on_i-1])
+                    # 进度条居中显示，高度占满canvas
+                    self.rect=self.canvas.create_rectangle(0, 0, w, 8, fill='grey',width=0)
+                self.canvas.place(x=0,y=0)
+            elif(self.nowgroup=='f'):
                 self.canvas.delete('all')
                 self.rect=self.canvas.create_rectangle(self.isl_frame.isls[self.main_num][1][0]/4, self.labelsize*self.gaprate*1/4,self.isl_frame.isls[self.main_num][1][0]*3/4, self.labelsize*self.gaprate*3/4, fill='black',width=0)
                 self.canvas.place(x=0,y=0)
-            if(self.after_class):
+            if(self.after_class and self.nowgroup!='u'):
                 if(self.nowgroup in ['b','f']):
                     self.labelsize=self.b_size
                     self.vicelabel.destroy()
@@ -547,7 +603,7 @@ class calendar:
                     w=self.isl_frame.isls[self.main_num][1][0]*self.sec_left/60/(self.off[self.off_i]-self.on[self.on_i-1])
                     self.rect=self.canvas.create_rectangle(self.isl_frame.isls[self.main_num][1][0]/2-w/2, self.labelsize*self.gaprate*1/4,self.isl_frame.isls[self.main_num][1][0]/2+w/2, self.labelsize*self.gaprate*3/4, fill='grey',width=0)
                     self.canvas.place(y=int(self.isl_frame.isls[self.main_num][1][1]-self.labelsize*self.gaprate))
-                elif(self.nowgroup!='f'):
+                elif(self.nowgroup!='f' and self.nowgroup!='u'):
                     self.canvas.delete('all')
                     h=self.isl_frame.isls[self.main_num][1][1]*self.sec_left/60/(self.off[self.off_i]-self.on[self.on_i-1])
                     self.rect=self.canvas.create_rectangle(self.labelsize*self.gaprate*1/4,self.isl_frame.isls[self.main_num][1][1]/2-h/2, self.labelsize*self.gaprate*3/4,self.isl_frame.isls[self.main_num][1][1]/2+h/2,  fill='grey',width=0)
@@ -557,14 +613,15 @@ class calendar:
                         self.canvas.place(x=0)
 
         if(self.after_class!=self.l_after_class or self.counter==0 or self.nowgroup!=self.l_nowgroup or self.sec_past!=self.l_sec_past):
-            if(self.after_class):
+            if(self.after_class and self.nowgroup!='u'):
                 self.viceland.attributes('-topmost',bool(self.ontop_afterclass))
                 if(self.nowgroup!='f'):
                     self.isl_frame.to_isl(self.viceland,self.vicelabel.winfo_reqwidth()+self.labelsize*self.gaprate*2,self.vicelabel.winfo_reqheight()+self.labelsize*self.gaprate*2,self.nowgroup)
                 else:
                     self.isl_frame.to_isl(self.viceland,self.vicelabel.winfo_reqwidth()+self.labelsize*self.gaprate*2,self.vicelabel.winfo_reqheight()+self.labelsize*self.gaprate*2,'b')
+                # 'u' 位置不显示 viceland
             else:
-                if(self.after_class!=self.l_after_class and self.counter!=0):
+                if(self.after_class!=self.l_after_class and self.counter!=0 and self.nowgroup!='u'):
                     self.isl_frame.del_isl(self.viceland)
 
         if(self.nowgroup!=self.l_nowgroup and self.nowgroup=='f'):
