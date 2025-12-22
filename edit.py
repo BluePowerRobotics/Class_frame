@@ -10,13 +10,16 @@ def save_settings(entries):
     global settings_data
     
     for key, entry in entries.items():
+        # entry may be a ttk.Entry or ttk.Combobox or other widget
+        raw = entry.get()
+        # try to coerce numeric values where appropriate
         try:
-            text=int(entry.get())
-        except ValueError:
+            text = int(raw)
+        except Exception:
             try:
-                text=float(entry.get())
-            except ValueError:
-                text=entry.get()
+                text = float(raw)
+            except Exception:
+                text = raw
         config[key] = [text]
     #写入文件
     file = open("config.json", "w", encoding='utf-8')
@@ -472,18 +475,30 @@ def create_parameter_settings(parent):
     for i, item in enumerate(settings_items):
         row = i // 2  # 每行两个设置项
         col = (i % 2) * 2  # 第0列:标签, 第1列:输入框
-        
+
         # 创建标签
         label = ttk.Label(frame, text=item + ":", anchor="e")
         label.grid(row=row, column=col, padx=5, pady=5, sticky="e")
         
         # 创建输入框
-        entry = ttk.Entry(frame, width=20)
-        entry.grid(row=row, column=col+1, padx=5, pady=5, sticky="w")
-        entry.insert(0,str(config[item][0]))
-        # 存储输入框引用
-        entries[item] = entry
-    
+        if item in ("上课默认位置", "下课默认位置"):
+            # Use a combobox with allowed positions including new 'u'
+            cb = ttk.Combobox(frame, width=18, state='readonly')
+            cb['values'] = ['a','b','c','f','u']
+            cb.grid(row=row, column=col+1, padx=5, pady=5, sticky="w")
+            # set current value from config (fallback to 'b')
+            try:
+                cb.set(str(config[item][0]))
+            except Exception:
+                cb.set('b')
+            entries[item] = cb
+        else:
+            entry = ttk.Entry(frame, width=20)
+            entry.grid(row=row, column=col+1, padx=5, pady=5, sticky="w")
+            entry.insert(0,str(config[item][0]))
+            # 存储输入框引用
+            entries[item] = entry
+
     # 添加固定在右下角的保存按钮
     save_button = ttk.Button(
         frame, 
