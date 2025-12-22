@@ -504,10 +504,11 @@ class calendar:
                     self.labelsize*=self.onclass_rate
                 position=self.labelsize*self.gaprate
                 for i in self.labels:
+                    tlen=max(len(i.cget('text')),1)
                     if(i.cget('text')=='|'):
-                        i.config(text='—',font=('幼圆',int(self.labelsize/(len(i.cget('text'))**0.7))),wraplength=self.labelsize*1.7)
+                        i.config(text='—',font=('幼圆',int(self.labelsize/(tlen**0.7))),wraplength=self.labelsize*1.7)
                     else:
-                        i.config(font=('幼圆',int(self.labelsize/(len(i.cget('text'))**0.7))),wraplength=self.labelsize*1.7,anchor='nw')
+                        i.config(font=('幼圆',int(self.labelsize/(tlen**0.7))),wraplength=self.labelsize*1.7,anchor='nw')
                     i.place(x=self.labelsize*self.gaprate,y=position)
                     position+=i.winfo_reqheight()
                 if(self.after_class):
