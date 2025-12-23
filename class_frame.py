@@ -48,6 +48,8 @@ class movements():
                 self.isls[i][1][3]=self.screen_height/2-self.isls[i][1][1]/2
             elif(self.isls[i][-1]=='u'):
                 # 'u' 位置：确保大小正确（屏幕宽度，高度8px）
+                # 只有在确实是'u'位置且大小不正确时才更新
+                # 注意：这里不检查大小差异，直接设置，因为如果group是'u'，说明确实应该在'u'位置
                 self.isls[i][1][0]=self.screen_width
                 self.isls[i][1][1]=8
                 self.isls[i][1][2]=0
@@ -143,12 +145,24 @@ class movements():
             self.isls[-1][3]=self.isls[-1][2]
         else:
             # 先更新group，这样cal_pos()就能正确判断位置类型
-            self.isls[formernum][-1]=group
-            # 更新大小
+            old_group=self.isls[formernum][-1]
+            # 更新大小（先更新大小，再更新group，这样cal_pos()就能使用新的大小）
             self.isls[formernum][1][0]=l
             self.isls[formernum][1][1]=w
-            # 调用cal_pos()计算位置
+            # 更新group
+            self.isls[formernum][-1]=group
+            # 调用cal_pos()计算位置（cal_pos()只设置位置，不修改大小，除了'u'位置的特殊处理）
             self.cal_pos()
+            # 如果是从'u'切换到其他位置，确保大小不会被cal_pos()中'u'位置的特殊处理覆盖
+            # 并且需要更新当前动画位置的大小，使其立即开始动画到新大小
+            if(old_group=='u' and group!='u'):
+                # 确保目标大小正确
+                self.isls[formernum][1][0]=l
+                self.isls[formernum][1][1]=w
+                # 更新当前动画位置的大小，使其立即开始动画到新大小
+                # 这样窗口大小会立即开始改变，而不是保持旧大小
+                self.isls[formernum][2][0]=l
+                self.isls[formernum][2][1]=w
         
         if(formernum==-1):
             return len(self.isls)-1
@@ -252,6 +266,7 @@ class calendar:
             
     def start(self):
         self.mainland=Tk()
+        self.mainland.config(bg='black')  # 设置主窗口背景为黑色
         self.isl_frame=movements()
         self.load_class()
         self.timer=time.time()
@@ -385,16 +400,27 @@ class calendar:
                 self.typical_size.append([self.t_width,self.t_height,self.s_width,self.s_height])
 
             #渲染文字
-            self.labels=[]        
+            # 如果从'u'位置切换过来，需要重新创建标签
+            if(self.counter==0):
+                self.labels=[]
+            elif(self.nowgroup!='u' and self.l_nowgroup=='u'):
+                # 从'u'位置切换到其他位置，需要销毁旧标签并重新创建
+                for lab in self.labels:
+                    try:
+                        lab.destroy()
+                    except:
+                        pass
+                self.labels=[]
             if(self.nowgroup=='u'):
                 # 'u' 位置：只显示进度条，隐藏所有标签
                 self.width=self.isl_frame.screen_width
                 self.height=8  # 很薄的高度
                 # 创建空标签列表，但不显示
-                for x in range(len(self.today_class)):
-                    class_lab=Label(self.mainland,text='')
-                    class_lab.place_forget()
-                    self.labels.append(class_lab)
+                if(len(self.labels)==0):
+                    for x in range(len(self.today_class)):
+                        class_lab=Label(self.mainland,text='')
+                        class_lab.place_forget()
+                        self.labels.append(class_lab)
             elif(self.nowgroup=='b'):
                 self.labelsize=self.b_size
                 if(not self.after_class):
@@ -448,6 +474,23 @@ class calendar:
                 except:
                     pass
             else:
+                # 从'u'位置切换到其他位置时，需要重新显示标签
+                # 如果标签数量不匹配或标签为空，需要重新创建
+                if(len(self.labels)!=len(self.today_class)):
+                    # 销毁旧标签
+                    for lab in self.labels:
+                        try:
+                            lab.destroy()
+                        except:
+                            pass
+                    self.labels=[]
+                    # 重新创建标签（这部分会在counter==0时执行）
+                else:
+                    # 更新现有标签的文本（如果为空）
+                    for i in range(len(self.labels)):
+                        if(not self.labels[i].cget('text') or self.labels[i].cget('text')==''):
+                            if(i<len(self.today_class)):
+                                self.labels[i].config(text=self.today_class[i])
                 for i in range(len(self.labels)):
                     if(i==self.highlight):
                         self.labels[i].config(fg='yellow')
@@ -536,8 +579,19 @@ class calendar:
                     else:
                         self.isl_frame.draggable(self.mainland,self.mainland,[self.typical_size[1][2:4],self.typical_size[1][0:2],self.typical_size[1][2:4],[self.typical_size[0][0],self.f_height],[self.isl_frame.screen_width,8]])
             else:
-                # 'u' 位置：可拖动，hope列表包含5个元素（a,b,c,f,u），高度8px
-                self.isl_frame.draggable(self.mainland,self.canvas,[[self.isl_frame.screen_width,8],[self.isl_frame.screen_width,8],[self.isl_frame.screen_width,8],[self.isl_frame.screen_width,8],[self.isl_frame.screen_width,8]])
+                # 'u' 位置：可拖动，hope列表包含5个元素（a,b,c,f,u）
+                if(self.after_class):
+                    hope_a=[self.typical_size[0][2],self.typical_size[0][3]]  # 竖直
+                    hope_b=[self.typical_size[0][0],self.typical_size[0][1]]  # 横向
+                    hope_c=[self.typical_size[0][2],self.typical_size[0][3]]
+                    hope_f=[self.typical_size[0][0],self.f_height]
+                else:
+                    hope_a=[self.typical_size[1][2],self.typical_size[1][3]]
+                    hope_b=[self.typical_size[1][0],self.typical_size[1][1]]
+                    hope_c=[self.typical_size[1][2],self.typical_size[1][3]]
+                    hope_f=[self.typical_size[1][0],self.f_height]
+                hope_u=[self.isl_frame.screen_width,8]
+                self.isl_frame.draggable(self.mainland,self.canvas,[hope_a,hope_b,hope_c,hope_f,hope_u])
 
             self.main_num=self.isl_frame.to_isl(self.mainland,self.width,self.height,self.nowgroup)
 
@@ -567,6 +621,9 @@ class calendar:
                     self.canvas.config( bg="black", width=int(self.isl_frame.isls[self.main_num][1][0]), height=self.labelsize*self.gaprate,highlightthickness=0)
                 else:
                     self.canvas.config(bg="black", height=int(self.isl_frame.isls[self.main_num][1][1]), width=self.labelsize*self.gaprate,highlightthickness=0)
+            else:
+                # 其他情况下隐藏canvas（如下课状态且不在'u'位置）
+                self.canvas.place_forget()
       
         if(not self.after_class and self.sec_past!=self.l_sec_past and not self.sec_past and self.nowgroup!='u'):
            self.on_class_label.place_forget()
