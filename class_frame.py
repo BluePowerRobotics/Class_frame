@@ -142,9 +142,12 @@ class movements():
                 self.isls[-1][2]=[self.screen_width,8,0,0]
             self.isls[-1][3]=self.isls[-1][2]
         else:
+            # 先更新group，这样cal_pos()就能正确判断位置类型
+            self.isls[formernum][-1]=group
+            # 更新大小
             self.isls[formernum][1][0]=l
             self.isls[formernum][1][1]=w
-            self.isls[formernum][-1]=group
+            # 调用cal_pos()计算位置
             self.cal_pos()
         
         if(formernum==-1):
@@ -457,7 +460,8 @@ class calendar:
             if(self.sec_past and self.nowgroup!='f' and self.nowgroup!='u' and not self.after_class):
                 if(self.nowgroup=='b'):
                     self.labelsize=self.b_size*self.onclass_rate
-                    self.labels[self.highlight].config(font=('幼圆',int(self.labelsize/(len(self.labels[self.highlight].cget('text'))**0.5))),wraplength=self.labelsize*1.5)
+                    htext_len=max(len(self.labels[self.highlight].cget('text')),1)
+                    self.labels[self.highlight].config(font=('幼圆',int(self.labelsize/(htext_len**0.5))),wraplength=self.labelsize*1.5)
                     self.labels[self.highlight].pack(padx=0,anchor='n',pady=self.labelsize*self.gaprate)
                     self.on_class_label.config(text=self.onw,font=('幼圆',int(self.labelsize)),fg='yellow',bg='black',anchor='s')
                     self.on_class_label.pack()
@@ -465,7 +469,8 @@ class calendar:
                     self.height=self.on_class_label.winfo_reqheight()+self.labelsize*self.gaprate*3+self.labels[self.highlight].winfo_reqheight()
                 else:
                     self.labelsize=self.ac_size*self.onclass_rate
-                    self.labels[self.highlight].config(font=('幼圆',int(self.labelsize/(len(self.labels[self.highlight].cget('text'))**0.5))),wraplength=self.labelsize*1.5)
+                    htext_len=max(len(self.labels[self.highlight].cget('text')),1)
+                    self.labels[self.highlight].config(font=('幼圆',int(self.labelsize/(htext_len**0.5))),wraplength=self.labelsize*1.5)
                     if(self.nowgroup=='a'):
                         self.labels[self.highlight].pack(padx=self.labelsize*self.gaprate,anchor='nw',pady=self.labelsize*self.gaprate)
                         self.on_class_label.config(text=self.onw,font=('幼圆',int(self.labelsize)),fg='yellow',bg='black',anchor='nw')
@@ -483,10 +488,11 @@ class calendar:
                     self.labelsize*=self.onclass_rate
                 position=self.labelsize*self.gaprate
                 for i in self.labels:
+                    tlen=max(len(i.cget('text')),1)
                     if(i.cget('text')=='—'):
-                        i.config(text='|',font=('幼圆',int(self.labelsize/(len(i.cget('text'))**0.5))),wraplength=self.labelsize*1.5)
+                        i.config(text='|',font=('幼圆',int(self.labelsize/(tlen**0.5))),wraplength=self.labelsize*1.5)
                     else:
-                        i.config(font=('幼圆',int(self.labelsize/(len(i.cget('text'))**0.5))),wraplength=self.labelsize*1.5,anchor='nw')
+                        i.config(font=('幼圆',int(self.labelsize/(tlen**0.5))),wraplength=self.labelsize*1.5,anchor='nw')
                     if(self.nowgroup=='b'):
                         i.place(x=position,y=self.labelsize*self.gaprate)
                     else:
