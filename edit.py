@@ -7,24 +7,45 @@ import datetime
 
 def save_settings(entries):
     """保存参数设置到字典"""
-    global settings_data
-    
+    flags = {"下课显示倒计时", "下课置顶", "上课置顶", "上课显示倒计条"}
+    numbers = {
+        "文字大小",
+        "竖直显示的文字大小",
+        "进度条宽度",
+        "left上课缩放",
+        "left下课缩放",
+        "upper上课缩放",
+        "upper下课缩放",
+        "center缩放",
+    }
+    positions = {"上课默认位置", "下课默认位置"}
     for key, entry in entries.items():
-        # entry may be a ttk.Entry or ttk.Combobox or other widget
         raw = entry.get()
-        # try to coerce numeric values where appropriate
-        try:
-            text = int(raw)
-        except Exception:
+        if key == "secondStyle":
+            config[key] = raw == "是"
+        elif key.startswith("拖入") and key.endswith("使用secondStyle"):
+            dock = key[2 : key.index("时")]
+            config.setdefault("拖动默认样式", {})[dock] = raw == "是"
+        elif key in positions:
+            config[key] = [raw]
+        elif key in flags:
             try:
-                text = float(raw)
+                config[key] = [int(raw)]
             except Exception:
-                text = raw
-        config[key] = [text]
-    #写入文件
-    file = open("config.json", "w", encoding='utf-8')
-    json.dump(config,file,indent=4,ensure_ascii=False)
-    file.close()
+                config[key] = [1 if raw == "是" else 0]
+        elif key in numbers:
+            try:
+                value = int(raw)
+            except Exception:
+                try:
+                    value = float(raw)
+                except Exception:
+                    value = raw
+            config[key] = [value]
+        else:
+            config[key] = [raw]
+    with open("config.json", "w", encoding="utf-8") as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
     messagebox.showinfo("保存成功", "参数设置已保存！")
 
 def save_schedule():
@@ -51,6 +72,98 @@ def save_schedule():
     file.close()
     # 显示保存成功消息
     messagebox.showinfo("保存成功", "课表数据已保存！")
+
+
+DOCKS = ["left", "upper", "right", "center"]
+
+
+def migrate_config(cfg):
+    pos_map = {"a": "left", "b": "upper", "c": "right", "f": "center", "u": "upper"}
+    for key in ("上课默认位置", "下课默认位置"):
+        if key in cfg:
+            old = cfg[key][0] if isinstance(cfg[key], list) and cfg[key] else cfg[key]
+            cfg[key] = [pos_map.get(old, old if old in DOCKS else "upper")]
+    cfg.setdefault("secondStyle", False)
+    defaults = cfg.setdefault("拖动默认样式", {})
+    for d in DOCKS:
+        defaults.setdefault(d, False)
+    old_scale = 1.0
+    if "上课放大倍率" in cfg:
+        v = cfg["上课放大倍率"]
+        old_scale = v[0] if isinstance(v, list) and v else v
+    for key, default in (
+        ("left上课缩放", old_scale),
+        ("left下课缩放", 1.0),
+        ("upper上课缩放", old_scale),
+        ("upper下课缩放", 1.0),
+        ("center缩放", 1.0),
+    ):
+        cfg.setdefault(key, [default])
+    cfg.setdefault("进度条宽度", [8])
+    return cfg
+
+
+def nth_lesson_pos(day, k):
+    """返回第 k(0 起) 个非 '|' 课节的下标；不存在返回 None。"""
+    count = 0
+    for i, t in enumerate(day):
+        if t != "|":
+            if count == k:
+                return i
+            count += 1
+    return None
+
+
+def schedule_lesson_count(day):
+    return sum(1 for t in day if t != "|")
+
+
+def insert_schedule_row_after(lesson_idx):
+    """在 config 七天课表的第 lesson_idx 节课后直接插入一行 '无'（不移动 '|'）。"""
+    for key in [str(i) for i in range(1, 8)]:
+        day = list(config["日程表"][key])
+        pos = nth_lesson_pos(day, lesson_idx)
+        if pos is None:
+            continue
+        day.insert(pos + 1, "无")
+        config["日程表"][key] = day
+
+
+def delete_schedule_row(lesson_idx):
+    """删除 config 七天课表第 lesson_idx 节课。"""
+    for key in [str(i) for i in range(1, 8)]:
+        day = list(config["日程表"][key])
+        pos = nth_lesson_pos(day, lesson_idx)
+        if pos is not None:
+            del day[pos]
+            config["日程表"][key] = day
+
+
+def lesson_context(lesson_idx):
+    lines = []
+    for key in [str(i) for i in range(1, 8)]:
+        day = config["日程表"][key]
+        pos = nth_lesson_pos(day, lesson_idx)
+        if pos is None:
+            lines.append(f"周{key}：无")
+        else:
+            lines.append(f"周{key}：{day[pos]}")
+    return "\n".join(lines)
+
+
+def parse_time(text):
+    try:
+        h, m = str(text).strip().split(":")
+        return [int(h), int(m)]
+    except Exception:
+        return None
+
+
+def fmt_time(pair):
+    try:
+        return f"{int(pair[0]):02d}:{int(pair[1]):02d}"
+    except Exception:
+        return str(pair)
     
 
 def create_schedule_tab(parent, text):
@@ -279,251 +392,216 @@ def del_course(row_index):
 
 
 def create_time_settings(parent):
-    """创建时间设置页面"""
+    """时间设置：支持成对插入（同时写入课表一整行“无”）与成对删除。"""
     frame = ttk.Frame(parent, padding=20)
-    
-    # 创建标签
-    ttk.Label(frame, text="上课时间设置", font=("Arial", 10, "bold")).grid(row=0, column=0, padx=5, pady=5)
-    ttk.Label(frame, text="下课时间设置", font=("Arial", 10, "bold")).grid(row=0, column=2, padx=5, pady=5)
-    
-    # 创建上课时间Listbox和滚动条
-    class_start_frame = ttk.Frame(frame)
-    class_start_frame.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
-    
-    class_start_scroll = ttk.Scrollbar(class_start_frame, orient="vertical")
-    class_start_listbox = tk.Listbox(
-        class_start_frame, 
-        width=15, 
-        height=15, 
-        yscrollcommand=class_start_scroll.set,
-        selectmode=tk.SINGLE
-    )
-    class_start_scroll.config(command=class_start_listbox.yview)
-    
-    # 添加上课数据
-    for time in config["开始时间"]:
-        class_start_listbox.insert(tk.END, str(time[0])+":"+str(time[1]))
-    
-    class_start_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-    class_start_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-    
-    # 创建上课时间按钮框架
-    start_buttons_frame = ttk.Frame(frame)
-    start_buttons_frame.grid(row=1, column=1, padx=5, sticky="ns")
-    
-    def add_start_time():
-        """添加上课时间"""
-        time = simpledialog.askstring("添加", "请输入上课时间:")
-        if time:
-            index = class_start_listbox.curselection()
-            if index:
-                class_start_listbox.insert(index[0] + 1, time)
-            else:
-                class_start_listbox.insert(tk.END, time)
-    
-    def edit_start_time():
-        """编辑上课时间"""
-        index = class_start_listbox.curselection()
-        if index:
-            current_time = class_start_listbox.get(index)
-            new_time = simpledialog.askstring("编辑", "修改上课时间:", initialvalue=current_time)
-            if new_time:
-                class_start_listbox.delete(index)
-                class_start_listbox.insert(index, new_time)
-        else:
-            messagebox.showwarning("未选择", "请先选择一个上课时间进行编辑")
-    
-    def delete_start_time():
-        """删除上课时间"""
-        index = class_start_listbox.curselection()
-        if index:
-            class_start_listbox.delete(index)
-        else:
-            messagebox.showwarning("未选择", "请先选择一个上课时间进行删除")
-    
-    # 添加上课时间按钮
-    ttk.Button(start_buttons_frame, text="添加", command=add_start_time, width=8).pack(pady=5)
-    ttk.Button(start_buttons_frame, text="编辑", command=edit_start_time, width=8).pack(pady=5)
-    ttk.Button(start_buttons_frame, text="删除", command=delete_start_time, width=8).pack(pady=5)
-    ttk.Button(
-        start_buttons_frame, 
-        text="保存", 
-        command=lambda: save_start_times(class_start_listbox),
-        width=8
-    ).pack(pady=15)  # 增加间距以区分
-    
-    # 创建下课时间Listbox和滚动条
-    class_end_frame = ttk.Frame(frame)
-    class_end_frame.grid(row=1, column=2, padx=10, pady=10, sticky="nsew")
-    
-    class_end_scroll = ttk.Scrollbar(class_end_frame, orient="vertical")
-    class_end_listbox = tk.Listbox(
-        class_end_frame, 
-        width=15, 
-        height=15, 
-        yscrollcommand=class_end_scroll.set,
-        selectmode=tk.SINGLE
-    )
-    class_end_scroll.config(command=class_end_listbox.yview)
-    
-    # 添加下课数据
-    for time in config["结束时间"]:
-        class_end_listbox.insert(tk.END, str(time[0])+":"+str(time[1]))
-    
-    class_end_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-    class_end_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-    
-    # 创建下课时间按钮框架
-    end_buttons_frame = ttk.Frame(frame)
-    end_buttons_frame.grid(row=1, column=3, padx=5, sticky="ns")
-    
-    def add_end_time():
-        """添加下课时间"""
-        time = simpledialog.askstring("添加", "请输入下课时间:")
-        if time:
-            index = class_end_listbox.curselection()
-            if index:
-                class_end_listbox.insert(index[0] + 1, time)
-            else:
-                class_end_listbox.insert(tk.END, time)
-    
-    def edit_end_time():
-        """编辑下课时间"""
-        index = class_end_listbox.curselection()
-        if index:
-            current_time = class_end_listbox.get(index)
-            new_time = simpledialog.askstring("编辑", "修改下课时间:", initialvalue=current_time)
-            if new_time:
-                class_end_listbox.delete(index)
-                class_end_listbox.insert(index, new_time)
-        else:
-            messagebox.showwarning("未选择", "请先选择一个下课时间进行编辑")
-    
-    def delete_end_time():
-        """删除下课时间"""
-        index = class_end_listbox.curselection()
-        if index:
-            class_end_listbox.delete(index)
-        else:
-            messagebox.showwarning("未选择", "请先选择一个下课时间进行删除")
-    
-    def save_start_times(listbox):
-        """保存上课时间到列表"""
-        global class_start_times
-        class_start_times = [listbox.get(i).split(":") for i in range(listbox.size())]
-        config["开始时间"]=class_start_times
-        file = open("config.json", "w", encoding='utf-8')
-        json.dump(config,file,indent=4,ensure_ascii=False)
-        file.close()
-        messagebox.showinfo("保存成功", "已保存上课时间")
+    ttk.Label(frame, text="上课时间", font=("Arial", 10, "bold")).grid(row=0, column=0, padx=5, pady=5)
+    ttk.Label(frame, text="下课时间", font=("Arial", 10, "bold")).grid(row=0, column=2, padx=5, pady=5)
+    ttk.Label(
+        frame,
+        text="插入/删除会成对作用于两个时间列表，并在课表同一位置加入/移除一整行。\n“|”只作为分隔符，不计入课节序号。",
+        foreground="#666666",
+    ).grid(row=2, column=0, columnspan=4, pady=8)
 
-    def save_end_times(listbox):
-        """保存下课时间到列表"""
-        global class_end_times
-        class_end_times = [listbox.get(i).split(":") for i in range(listbox.size())]
-        config["结束时间"]=class_end_times
-        file = open("config.json", "w", encoding='utf-8')
-        json.dump(config,file,indent=4,ensure_ascii=False)
-        file.close()
-        messagebox.showinfo("保存成功","已保存下课时间")
-    
-    # 添加下课时间按钮
-    ttk.Button(end_buttons_frame, text="添加", command=add_end_time, width=8).pack(pady=5)
-    ttk.Button(end_buttons_frame, text="编辑", command=edit_end_time, width=8).pack(pady=5)
-    ttk.Button(end_buttons_frame, text="删除", command=delete_end_time, width=8).pack(pady=5)
-    ttk.Button(
-        end_buttons_frame, 
-        text="保存", 
-        command=lambda: save_end_times(class_end_listbox),
-        width=8
-    ).pack(pady=15)
-    
-    # 配置网格权重
-    frame.columnconfigure(0, weight=1)
-    frame.columnconfigure(2, weight=1)
-    frame.rowconfigure(1, weight=1)
-    
-    return frame
+    def make_listbox(container, values):
+        lb = tk.Listbox(container, width=20, height=14, selectmode=tk.SINGLE)
+        sb = ttk.Scrollbar(container, orient="vertical", command=lb.yview)
+        lb.configure(yscrollcommand=sb.set)
+        for v in values:
+            lb.insert(tk.END, v)
+        lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        return lb
 
+    start_container = ttk.Frame(frame)
+    start_container.grid(row=1, column=0, padx=8, pady=5, sticky="nsew")
+    start_lb = make_listbox(start_container, [fmt_time(t) for t in config["开始时间"]])
 
-def create_parameter_settings(parent):
-    """创建参数设置页面"""
-    global settings_data
-    
-    frame = ttk.Frame(parent, padding=20)
-    
-    # 创建参数设置项
-    settings_items = [
-        "下课显示倒计时", 
-        "下课置顶", 
-        "上课置顶", 
-        "上课显示倒计条", 
-        "文字大小", 
-        "上课放大倍率", 
-        "上课默认位置", 
-        "下课默认位置",
-        "竖直显示的文字大小",
-        "进度条宽度",
-        "开始提示",
-        "结束提示",
-        "结尾提示"
-    ]
-    
-    # 存储所有输入框的字典
-    entries = {}
-    
-    # 使用网格布局创建标签和输入框
-    for i, item in enumerate(settings_items):
-        row = i // 2  # 每行两个设置项
-        col = (i % 2) * 2  # 第0列:标签, 第1列:输入框
+    end_container = ttk.Frame(frame)
+    end_container.grid(row=1, column=2, padx=8, pady=5, sticky="nsew")
+    end_lb = make_listbox(end_container, [fmt_time(t) for t in config["结束时间"]])
 
-        # 创建标签
-        label = ttk.Label(frame, text=item + ":", anchor="e")
-        label.grid(row=row, column=col, padx=5, pady=5, sticky="e")
-        
-        # 创建输入框
-        if item in ("上课默认位置", "下课默认位置"):
-            # Use a combobox with allowed positions including new 'u'
-            cb = ttk.Combobox(frame, width=18, state='readonly')
-            cb['values'] = ['a','b','c','f','u']
-            cb.grid(row=row, column=col+1, padx=5, pady=5, sticky="w")
-            # set current value from config (fallback to 'b')
-            try:
-                cb.set(str(config[item][0]))
-            except Exception:
-                cb.set('b')
-            entries[item] = cb
+    def refresh_lists(keep=0):
+        start_lb.delete(0, tk.END)
+        end_lb.delete(0, tk.END)
+        for t in config["开始时间"]:
+            start_lb.insert(tk.END, fmt_time(t))
+        for t in config["结束时间"]:
+            end_lb.insert(tk.END, fmt_time(t))
+        if 0 <= keep < start_lb.size():
+            start_lb.selection_set(keep)
+        if 0 <= keep < end_lb.size():
+            end_lb.selection_set(keep)
+
+    def current_index():
+        sel = start_lb.curselection() or end_lb.curselection()
+        return sel[0] if sel else None
+
+    def persist():
+        with open("config.json", "w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+
+    def insert_pair():
+        idx = current_index()
+        if idx is None:
+            messagebox.showwarning("未选择", "请先在任一列表中选中一个时间，再在其后插入。")
+            return
+        new_start = simpledialog.askstring("插入", "请输入新的上课开始时间（HH:MM）：")
+        new_end = simpledialog.askstring("插入", "请输入新的下课时间（HH:MM）：")
+        if new_start is None or new_end is None:
+            return
+        p1 = parse_time(new_start)
+        p2 = parse_time(new_end)
+        if p1 is None or p2 is None:
+            messagebox.showerror("格式错误", "时间格式应为 HH:MM")
+            return
+        pos = idx + 1
+        config["开始时间"].insert(pos, p1)
+        config["结束时间"].insert(pos, p2)
+        insert_schedule_row_after(idx)
+        persist()
+        refresh_lists(pos)
+        messagebox.showinfo("成功", f"已在第 {idx + 1} 节之后插入 {fmt_time(p1)}~{fmt_time(p2)}，并加入一行“无”。")
+
+    def delete_pair():
+        idx = current_index()
+        if idx is None:
+            messagebox.showwarning("未选择", "请先选择要删除的时间。")
+            return
+        if idx >= len(config["开始时间"]) or idx >= len(config["结束时间"]):
+            return
+        detail = (
+            f"将删除第 {idx + 1} 节：{fmt_time(config['开始时间'][idx])}~{fmt_time(config['结束时间'][idx])}\n\n"
+            f"七天对应课表：\n{lesson_context(idx)}\n\n确认删除？"
+        )
+        if not messagebox.askyesno("确认删除", detail):
+            return
+        del config["开始时间"][idx]
+        del config["结束时间"][idx]
+        delete_schedule_row(idx)
+        persist()
+        refresh_lists()
+        messagebox.showinfo("成功", "已删除该时间对与对应课表行。")
+
+    def edit_side(side):
+        idx = current_index()
+        if idx is None:
+            messagebox.showwarning("未选择", "请先选择要编辑的时间。")
+            return
+        current = config["开始时间" if side == "start" else "结束时间"][idx]
+        new = simpledialog.askstring(
+            "编辑",
+            "请输入新的%s时间（HH:MM）：" % ("上课" if side == "start" else "下课"),
+            initialvalue=fmt_time(current),
+        )
+        if not new:
+            return
+        p = parse_time(new)
+        if p is None:
+            messagebox.showerror("格式错误", "时间格式应为 HH:MM")
+            return
+        if side == "start":
+            config["开始时间"][idx] = p
         else:
-            entry = ttk.Entry(frame, width=20)
-            entry.grid(row=row, column=col+1, padx=5, pady=5, sticky="w")
-            entry.insert(0,str(config[item][0]))
-            # 存储输入框引用
-            entries[item] = entry
+            config["结束时间"][idx] = p
+        persist()
+        refresh_lists(idx)
+        messagebox.showinfo("成功", "已修改。")
 
-    # 添加固定在右下角的保存按钮
-    save_button = ttk.Button(
-        frame, 
-        text="保存参数", 
-        command=lambda: save_settings(entries),
-        width=15
-    )
-    save_button.grid(
-        row=len(settings_items)//2 + 1, 
-        column=3, 
-        padx=10, 
-        pady=20, 
-        sticky="se"
-    )
-    
-    # 配置网格权重
+    start_btns = ttk.Frame(frame)
+    start_btns.grid(row=1, column=1, padx=5, sticky="ns")
+    end_btns = ttk.Frame(frame)
+    end_btns.grid(row=1, column=3, padx=5, sticky="ns")
+    for btn_frame, side, label in (
+        (start_btns, "start", "上课"),
+        (end_btns, "end", "下课"),
+    ):
+        ttk.Button(btn_frame, text=f"编辑{label}时间", command=lambda s=side: edit_side(s), width=10).pack(pady=4)
+        ttk.Button(btn_frame, text="其后插入（成对）", command=insert_pair, width=13).pack(pady=4)
+        ttk.Button(btn_frame, text="删除（成对）", command=delete_pair, width=13).pack(pady=4)
+
     frame.columnconfigure(0, weight=1)
     frame.columnconfigure(1, weight=1)
     frame.columnconfigure(2, weight=1)
     frame.columnconfigure(3, weight=1)
-    
-    for i in range(len(settings_items)//2 + 2):
+    frame.rowconfigure(1, weight=1)
+    return frame
+
+
+def create_parameter_settings(parent):
+    """参数：显示/位置/secondStyle/五个缩放。"""
+    frame = ttk.Frame(parent, padding=20)
+    flag_items = [
+        "下课显示倒计时",
+        "下课置顶",
+        "上课置顶",
+        "上课显示倒计条",
+    ]
+    number_items = [
+        "文字大小",
+        "竖直显示的文字大小",
+        "进度条宽度",
+        "left上课缩放",
+        "left下课缩放",
+        "upper上课缩放",
+        "upper下课缩放",
+        "center缩放",
+    ]
+    text_items = ["开始提示", "结束提示", "结尾提示"]
+    position_items = ["上课默认位置", "下课默认位置"]
+    drag_default_items = [
+        "拖入left时使用secondStyle",
+        "拖入upper时使用secondStyle",
+        "拖入right时使用secondStyle",
+        "拖入center时使用secondStyle",
+    ]
+    rows = []
+    for item in flag_items + number_items + position_items + drag_default_items + text_items + ["secondStyle"]:
+        rows.append(item)
+
+    entries = {}
+    for i, item in enumerate(rows):
+        row, col = i // 2, (i % 2) * 2
+        ttk.Label(frame, text=item + ":", anchor="e").grid(row=row, column=col, padx=5, pady=4, sticky="e")
+        if item in position_items:
+            cb = ttk.Combobox(frame, width=16, state="readonly", values=DOCKS)
+            cb.grid(row=row, column=col + 1, padx=5, pady=4, sticky="w")
+            value = config[item][0] if isinstance(config[item], list) else config[item]
+            cb.set(str(value) if str(value) in DOCKS else "upper")
+            entries[item] = cb
+        elif item in drag_default_items:
+            dock = item[2 : item.index("时")]
+            cb = ttk.Combobox(frame, width=5, state="readonly", values=["否", "是"])
+            cb.set("是" if config.get("拖动默认样式", {}).get(dock, False) else "否")
+            cb.grid(row=row, column=col + 1, padx=5, pady=4, sticky="w")
+            entries[item] = cb
+        elif item == "secondStyle":
+            cb = ttk.Combobox(frame, width=5, state="readonly", values=["否", "是"])
+            cb.set("是" if config.get("secondStyle", False) else "否")
+            cb.grid(row=row, column=col + 1, padx=5, pady=4, sticky="w")
+            entries[item] = cb
+        elif item in number_items:
+            val = config.get(item, [""])
+            entry = ttk.Entry(frame, width=16)
+            entry.insert(0, str(val[0] if isinstance(val, list) and val else val))
+            entry.grid(row=row, column=col + 1, padx=5, pady=4, sticky="w")
+            entries[item] = entry
+        else:
+            val = config.get(item, [""])
+            entry = ttk.Entry(frame, width=16)
+            entry.insert(0, str(val[0] if isinstance(val, list) and val else val))
+            entry.grid(row=row, column=col + 1, padx=5, pady=4, sticky="w")
+            entries[item] = entry
+
+    ttk.Button(
+        frame,
+        text="保存参数",
+        command=lambda: save_settings(entries),
+        width=15,
+    ).grid(row=len(rows) // 2 + 1, column=3, padx=10, pady=20, sticky="se")
+    for i in range(4):
+        frame.columnconfigure(i, weight=1)
+    for i in range(len(rows) // 2 + 2):
         frame.rowconfigure(i, weight=1)
-    
     return frame
 
 
@@ -831,29 +909,15 @@ def swap_selected_courses():
 
 
 #读取json文件
-with open('config.json', 'r', encoding='utf-8') as file:
-    config = json.load(file)
-class_start_times=[]
-class_end_times=[]
-settings_data = {
-    "下课显示倒计时": "",
-    "下课置顶": "",
-    "上课置顶": "",
-    "上课显示倒计条": "",
-    "文字大小": "",
-    "上课放大倍率": "",
-    "上课默认位置": "",
-    "下课默认位置": "",
-    "竖直显示的文字大小": "",
-    "进度条宽度": "",
-    "开始提示": "",
-    "结束提示": "",
-    "结尾提示": ""
-}
+with open("config.json", "r", encoding="utf-8") as file:
+    config = migrate_config(json.load(file))
+class_start_times = []
+class_end_times = []
+settings_data = {}
 # 创建主窗口
 root = tk.Tk()
 root.title("课程表编辑")
-root.geometry("800x500")
+root.geometry("960x640")
 
 # 创建Notebook（多页控件）
 notebook = ttk.Notebook(root)

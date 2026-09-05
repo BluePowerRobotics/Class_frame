@@ -3,3 +3,5 @@ data.py
 python
 .stop_signal
 data.json
+__pycache__/
+*.pyc
