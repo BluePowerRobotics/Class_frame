@@ -27,7 +27,7 @@ def save_settings(entries):
             dock = key[2 : key.index("时")]
             config.setdefault("拖动默认样式", {})[dock] = raw == "是"
         elif key in positions:
-            config[key] = [raw]
+            config[key] = [DOCK_TO_KEY.get(raw, raw)]
         elif key in flags:
             try:
                 config[key] = [int(raw)]
@@ -75,6 +75,9 @@ def save_schedule():
 
 
 DOCKS = ["left", "upper", "right", "center"]
+DOCK_OPTIONS = [("左侧", "left"), ("上方", "upper"), ("右侧", "right"), ("居中", "center")]
+DOCK_TO_KEY = dict(DOCK_OPTIONS)
+DOCK_TO_TEXT = {v: k for k, v in DOCK_OPTIONS}
 
 
 def migrate_config(cfg):
@@ -528,80 +531,101 @@ def create_time_settings(parent):
 
 
 def create_parameter_settings(parent):
-    """参数：显示/位置/secondStyle/五个缩放。"""
+    """参数：显示与置顶/字号/停靠位置/拖入样式。"""
     frame = ttk.Frame(parent, padding=20)
-    flag_items = [
-        "下课显示倒计时",
-        "下课置顶",
-        "上课置顶",
-        "上课显示倒计条",
+    sections = [
+        ("显示与置顶", [
+            ("上课显示倒计条", "上课时显示课堂进度条", "bool"),
+            ("下课显示倒计时", "课间/放学时显示倒计时", "bool"),
+            ("上课置顶", "上课时窗口置顶", "bool"),
+            ("下课置顶", "课间/放学时窗口置顶", "bool"),
+            ("secondStyle", "启用第二样式（三侧仅进度条/居中编辑界面）", "bool"),
+        ]),
+        ("字号与尺寸", [
+            ("文字大小", "横向基准字号（上方/居中）", "number"),
+            ("竖直显示的文字大小", "侧边基准字号（左/右）", "number"),
+            ("进度条宽度", "第二样式进度条厚度", "number"),
+            ("left上课缩放", "左侧·上课中缩放", "number"),
+            ("left下课缩放", "左侧·课间/放学缩放", "number"),
+            ("upper上课缩放", "上方·上课中缩放", "number"),
+            ("upper下课缩放", "上方·课间/放学缩放", "number"),
+            ("center缩放", "居中窗口缩放", "number"),
+        ]),
+        ("停靠位置", [
+            ("上课默认位置", "上课时停靠", "dock"),
+            ("下课默认位置", "课间/放学时停靠", "dock"),
+        ]),
+        ("拖入区域时默认使用的样式", [
+            ("拖入left时使用secondStyle", "拖到左侧时默认第二样式", "bool"),
+            ("拖入upper时使用secondStyle", "拖到上方时默认第二样式", "bool"),
+            ("拖入right时使用secondStyle", "拖到右侧时默认第二样式", "bool"),
+            ("拖入center时使用secondStyle", "拖到居中时默认第二样式", "bool"),
+        ]),
+        ("提示文字", [
+            ("开始提示", "上课前提示文字", "text"),
+            ("结束提示", "下课时提示文字", "text"),
+            ("结尾提示", "放学提示文字", "text"),
+        ]),
     ]
-    number_items = [
-        "文字大小",
-        "竖直显示的文字大小",
-        "进度条宽度",
-        "left上课缩放",
-        "left下课缩放",
-        "upper上课缩放",
-        "upper下课缩放",
-        "center缩放",
-    ]
-    text_items = ["开始提示", "结束提示", "结尾提示"]
-    position_items = ["上课默认位置", "下课默认位置"]
-    drag_default_items = [
-        "拖入left时使用secondStyle",
-        "拖入upper时使用secondStyle",
-        "拖入right时使用secondStyle",
-        "拖入center时使用secondStyle",
-    ]
-    rows = []
-    for item in flag_items + number_items + position_items + drag_default_items + text_items + ["secondStyle"]:
-        rows.append(item)
 
     entries = {}
-    for i, item in enumerate(rows):
-        row, col = i // 2, (i % 2) * 2
-        ttk.Label(frame, text=item + ":", anchor="e").grid(row=row, column=col, padx=5, pady=4, sticky="e")
-        if item in position_items:
-            cb = ttk.Combobox(frame, width=16, state="readonly", values=DOCKS)
-            cb.grid(row=row, column=col + 1, padx=5, pady=4, sticky="w")
-            value = config[item][0] if isinstance(config[item], list) else config[item]
-            cb.set(str(value) if str(value) in DOCKS else "upper")
-            entries[item] = cb
-        elif item in drag_default_items:
-            dock = item[2 : item.index("时")]
-            cb = ttk.Combobox(frame, width=5, state="readonly", values=["否", "是"])
-            cb.set("是" if config.get("拖动默认样式", {}).get(dock, False) else "否")
-            cb.grid(row=row, column=col + 1, padx=5, pady=4, sticky="w")
-            entries[item] = cb
-        elif item == "secondStyle":
-            cb = ttk.Combobox(frame, width=5, state="readonly", values=["否", "是"])
-            cb.set("是" if config.get("secondStyle", False) else "否")
-            cb.grid(row=row, column=col + 1, padx=5, pady=4, sticky="w")
-            entries[item] = cb
-        elif item in number_items:
-            val = config.get(item, [""])
-            entry = ttk.Entry(frame, width=16)
-            entry.insert(0, str(val[0] if isinstance(val, list) and val else val))
-            entry.grid(row=row, column=col + 1, padx=5, pady=4, sticky="w")
-            entries[item] = entry
-        else:
-            val = config.get(item, [""])
-            entry = ttk.Entry(frame, width=16)
-            entry.insert(0, str(val[0] if isinstance(val, list) and val else val))
-            entry.grid(row=row, column=col + 1, padx=5, pady=4, sticky="w")
-            entries[item] = entry
+    grid_row = 0
+
+    def value_of(key):
+        val = config.get(key, False)
+        if isinstance(val, (list, tuple)):
+            val = val[0] if val else False
+        return val
+
+    for title, items in sections:
+        ttk.Label(frame, text=title, font=("Arial", 10, "bold")).grid(
+            row=grid_row, column=0, columnspan=4, padx=5, pady=(8, 2), sticky="w"
+        )
+        grid_row += 1
+        col = 0
+        for key, label, kind in items:
+            ttk.Label(frame, text=label + ":", anchor="e").grid(
+                row=grid_row, column=col, padx=5, pady=2, sticky="e"
+            )
+            if kind == "bool":
+                if key.startswith("拖入") and key.endswith("使用secondStyle"):
+                    dock = key[2 : key.index("时")]
+                    current = config.get("拖动默认样式", {}).get(dock, False)
+                else:
+                    current = value_of(key)
+                cb = ttk.Combobox(frame, width=5, state="readonly", values=["否", "是"])
+                cb.set("是" if current else "否")
+                cb.grid(row=grid_row, column=col + 1, padx=5, pady=2, sticky="w")
+                entries[key] = cb
+            elif kind == "dock":
+                current = value_of(key)
+                cb = ttk.Combobox(
+                    frame, width=10, state="readonly", values=[k for k in DOCK_TO_KEY]
+                )
+                cb.set(DOCK_TO_TEXT.get(str(current), "上方"))
+                cb.grid(row=grid_row, column=col + 1, padx=5, pady=2, sticky="w")
+                entries[key] = cb
+            else:
+                val = config.get(key, [""])
+                text = str(val[0] if isinstance(val, list) and val else val)
+                entry = ttk.Entry(frame, width=14)
+                entry.insert(0, text)
+                entry.grid(row=grid_row, column=col + 1, padx=5, pady=2, sticky="w")
+                entries[key] = entry
+            col = 2 if col == 0 else 0
+            if col == 0:
+                grid_row += 1
+        if col == 2:
+            grid_row += 1
 
     ttk.Button(
         frame,
         text="保存参数",
         command=lambda: save_settings(entries),
         width=15,
-    ).grid(row=len(rows) // 2 + 1, column=3, padx=10, pady=20, sticky="se")
+    ).grid(row=grid_row, column=3, padx=10, pady=10, sticky="se")
     for i in range(4):
         frame.columnconfigure(i, weight=1)
-    for i in range(len(rows) // 2 + 2):
-        frame.rowconfigure(i, weight=1)
     return frame
 
 
