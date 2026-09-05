@@ -15,6 +15,7 @@ class movements():
         self.isls=[]
         self.changingpos=0
         self.movingisl=[]
+        self.progress_width=8
         
     def cal_pos(self):
         mema=-self.island_gap
@@ -47,11 +48,11 @@ class movements():
                 self.isls[i][1][2]=self.screen_width/2-self.isls[i][1][0]/2
                 self.isls[i][1][3]=self.screen_height/2-self.isls[i][1][1]/2
             elif(self.isls[i][-1]=='u'):
-                # 'u' 位置：确保大小正确（屏幕宽度，高度8px）
+                # 'u' 位置：确保大小正确（屏幕宽度，配置的进度条宽度）
                 # 只有在确实是'u'位置且大小不正确时才更新
                 # 注意：这里不检查大小差异，直接设置，因为如果group是'u'，说明确实应该在'u'位置
                 self.isls[i][1][0]=self.screen_width
-                self.isls[i][1][1]=8
+                self.isls[i][1][1]=self.progress_width
                 self.isls[i][1][2]=0
                 self.isls[i][1][3]=0
             else:
@@ -259,6 +260,8 @@ class calendar:
             self.b_size=text["文字大小"][0]
             self.onclass_rate=text["上课放大倍率"][0]
             self.ac_size=text["竖直显示的文字大小"][0]
+            self.progress_width=max(1,int(text.get("进度条宽度",[8])[0]))
+            self.isl_frame.progress_width=self.progress_width
 
         with open('data.json', 'r', encoding='utf-8') as file:
             self.class_change= json.load(file)
@@ -414,7 +417,7 @@ class calendar:
             if(self.nowgroup=='u'):
                 # 'u' 位置：只显示进度条，隐藏所有标签
                 self.width=self.isl_frame.screen_width
-                self.height=8  # 很薄的高度
+                self.height=self.progress_width
                 # 创建空标签列表，但不显示
                 if(len(self.labels)==0):
                     for x in range(len(self.today_class)):
@@ -590,7 +593,7 @@ class calendar:
                     hope_b=[self.typical_size[1][0],self.typical_size[1][1]]
                     hope_c=[self.typical_size[1][2],self.typical_size[1][3]]
                     hope_f=[self.typical_size[1][0],self.f_height]
-                hope_u=[self.isl_frame.screen_width,8]
+                hope_u=[self.isl_frame.screen_width,self.progress_width]
                 self.isl_frame.draggable(self.mainland,self.canvas,[hope_a,hope_b,hope_c,hope_f,hope_u])
 
             self.main_num=self.isl_frame.to_isl(self.mainland,self.width,self.height,self.nowgroup)
@@ -611,16 +614,16 @@ class calendar:
             #渲染进度条
             self.canvas.delete('all')
             if(self.nowgroup=='u'):
-                # 'u' 位置：全屏宽度，高度8px（横向，类似'b'位置）
-                self.canvas.config(bg="black", width=int(self.isl_frame.screen_width), height=8,highlightthickness=0)
+                # 'u' 位置：全屏宽度，使用配置的进度条宽度
+                self.canvas.config(bg="black", width=int(self.isl_frame.screen_width), height=self.progress_width,highlightthickness=0)
                 self.canvas.place(x=0,y=0)
             elif(self.nowgroup=='f'):
                 self.canvas.config(bg="black", width=int(self.typical_size[0][0]), height=self.labelsize/2+self.labelsize*self.gaprate*2,highlightthickness=0)
             elif(not self.after_class and self.showt_onclass):
                 if(self.nowgroup=='b'):
-                    self.canvas.config( bg="black", width=int(self.isl_frame.isls[self.main_num][1][0]), height=self.labelsize*self.gaprate,highlightthickness=0)
+                    self.canvas.config( bg="black", width=int(self.isl_frame.isls[self.main_num][1][0]), height=self.progress_width,highlightthickness=0)
                 else:
-                    self.canvas.config(bg="black", height=int(self.isl_frame.isls[self.main_num][1][1]), width=self.labelsize*self.gaprate,highlightthickness=0)
+                    self.canvas.config(bg="black", height=int(self.isl_frame.isls[self.main_num][1][1]), width=self.progress_width,highlightthickness=0)
             else:
                 # 其他情况下隐藏canvas（如下课状态且不在'u'位置）
                 self.canvas.place_forget()
@@ -638,7 +641,7 @@ class calendar:
                     # 上课时显示横向进度条
                     w=self.isl_frame.screen_width*self.sec_left/60/(self.off[self.off_i]-self.on[self.on_i-1])
                     # 进度条居中显示，高度占满canvas
-                    self.rect=self.canvas.create_rectangle(0, 0, w, 8, fill='grey',width=0)
+                    self.rect=self.canvas.create_rectangle(0, 0, w, self.progress_width, fill='grey',width=0)
                 self.canvas.place(x=0,y=0)
             elif(self.nowgroup=='f'):
                 self.canvas.delete('all')
@@ -665,16 +668,16 @@ class calendar:
                 if(self.nowgroup=='b'):
                     self.canvas.delete('all')
                     w=self.isl_frame.isls[self.main_num][1][0]*self.sec_left/60/(self.off[self.off_i]-self.on[self.on_i-1])
-                    self.rect=self.canvas.create_rectangle(self.isl_frame.isls[self.main_num][1][0]/2-w/2, self.labelsize*self.gaprate*1/4,self.isl_frame.isls[self.main_num][1][0]/2+w/2, self.labelsize*self.gaprate*3/4, fill='grey',width=0)
-                    self.canvas.place(y=int(self.isl_frame.isls[self.main_num][1][1]-self.labelsize*self.gaprate))
+                    self.rect=self.canvas.create_rectangle(self.isl_frame.isls[self.main_num][1][0]/2-w/2, 0,self.isl_frame.isls[self.main_num][1][0]/2+w/2, self.progress_width, fill='grey',width=0)
+                    self.canvas.place(x=0,y=int(self.isl_frame.isls[self.main_num][1][1]-self.progress_width))
                 elif(self.nowgroup!='f' and self.nowgroup!='u'):
                     self.canvas.delete('all')
                     h=self.isl_frame.isls[self.main_num][1][1]*self.sec_left/60/(self.off[self.off_i]-self.on[self.on_i-1])
-                    self.rect=self.canvas.create_rectangle(self.labelsize*self.gaprate*1/4,self.isl_frame.isls[self.main_num][1][1]/2-h/2, self.labelsize*self.gaprate*3/4,self.isl_frame.isls[self.main_num][1][1]/2+h/2,  fill='grey',width=0)
+                    self.rect=self.canvas.create_rectangle(0,self.isl_frame.isls[self.main_num][1][1]/2-h/2, self.progress_width,self.isl_frame.isls[self.main_num][1][1]/2+h/2,  fill='grey',width=0)
                     if(self.nowgroup=='a'):
-                        self.canvas.place(x=int(self.isl_frame.isls[self.main_num][1][0]-self.labelsize*self.gaprate))
+                        self.canvas.place(x=int(self.isl_frame.isls[self.main_num][1][0]-self.progress_width),y=0)
                     elif(self.nowgroup=='c'):
-                        self.canvas.place(x=0)
+                        self.canvas.place(x=0,y=0)
 
         if(self.after_class!=self.l_after_class or self.counter==0 or self.nowgroup!=self.l_nowgroup or self.sec_past!=self.l_sec_past):
             if(self.after_class and self.nowgroup!='u'):
