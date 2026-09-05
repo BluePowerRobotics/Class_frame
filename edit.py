@@ -532,7 +532,17 @@ def create_time_settings(parent):
 
 def create_parameter_settings(parent):
     """参数：显示与置顶/字号/停靠位置/拖入样式。"""
-    frame = ttk.Frame(parent, padding=20)
+    outer = ttk.Frame(parent)
+    canvas = tk.Canvas(outer, highlightthickness=0)
+    scrollbar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+    frame = ttk.Frame(canvas, padding=12)
+    canvas.configure(yscrollcommand=scrollbar.set)
+    canvas.create_window((0, 0), window=frame, anchor="nw")
+    canvas.grid(row=0, column=0, sticky="nsew")
+    scrollbar.grid(row=0, column=1, sticky="ns")
+    outer.grid_rowconfigure(0, weight=1)
+    outer.grid_columnconfigure(0, weight=1)
+    frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
     sections = [
         ("显示与置顶", [
             ("上课显示倒计条", "上课时显示课堂进度条", "bool"),
@@ -626,7 +636,7 @@ def create_parameter_settings(parent):
     ).grid(row=grid_row, column=3, padx=10, pady=10, sticky="se")
     for i in range(4):
         frame.columnconfigure(i, weight=1)
-    return frame
+    return outer
 
 
 def create_settings_tab(parent):
