@@ -4,6 +4,7 @@ import json
 import time
 import datetime
 import math
+import sys
 from tkinter import Tk, Toplevel, Label, Button, Canvas
 
 
@@ -151,9 +152,13 @@ class movements:
             rec["goal"][1] = 1
             self.cal_pos()
 
-    def set_drag_goal(self, win, x, y):
+    def set_drag_goal(self, win, x, y, w=None, h=None):
         idx = self.find(win)
         if idx != -1:
+            if w is not None:
+                self.isls[idx]["goal"][0] = max(1, int(round(w)))
+            if h is not None:
+                self.isls[idx]["goal"][1] = max(1, int(round(h)))
             self.isls[idx]["goal"][2] = x
             self.isls[idx]["goal"][3] = y
 
@@ -283,6 +288,8 @@ class calendar:
         self.highlight = None
         self.tick = 0
         self.layout_dirty = True
+        self._geom_cache = {}
+        self._built_for = None
 
         self.today_class = []
         self.changing_class = []
@@ -313,6 +320,9 @@ class calendar:
         self.drag_ref = None
         self.drag_click = False
         self.drag_moved = 0
+        self.press_widget = None
+        self.press_role = None
+        self._btn_left_down = self._make_left_down_check()
 
         # 编辑（拖课）状态
         self.moving_class = 0
@@ -513,6 +523,94 @@ class calendar:
             return [side + gap * 2, total + gap * 2]
         return [total + gap * 2, side + gap * 2]
 
+    def _temp_req(self, text, fpx, vertical=False, font_override=None):
+        if font_override is not None:
+            lab = Label(self.mainland, text=text, font=font_override, fg="white", bg="black")
+        else:
+            lab = self._mk_label(text, fpx, vertical)
+        lab.update_idletasks()
+        w = lab.winfo_reqwidth()
+        h = lab.winfo_reqheight()
+        lab.destroy()
+        return w, h
+
+    def _row_geom(self, tokens, fpx, vertical=False):
+        gap = max(4, fpx * 0.25)
+        total = 0.0
+        side = 0.0
+        for text in tokens:
+            w, h = self._temp_req(text, fpx, vertical)
+            if vertical:
+                total += h
+                side = max(side, w)
+            else:
+                total += w
+                side = max(side, h)
+        return [total + gap * 2, side + gap * 2]
+
+    def kind_for(self, dock=None, style=None):
+        dock = self.nowgroup if dock is None else dock
+        style = self.second_style if style is None else bool(style)
+        if dock in ("left", "upper", "right"):
+            return "edge_bar" if style else "edge_text"
+        return "center_editor" if style else "center_simple"
+
+    def preview_size(self, dock=None, style=None):
+        """按目标 dock + 目标 secondStyle 计算新结构应有的窗口尺寸，供拖动定位使用。"""
+        dock = self.nowgroup if dock is None else dock
+        style = self.second_style if style is None else bool(style)
+        key = (
+            dock,
+            style,
+            self.after_class,
+            tuple(self.today_class),
+            tuple(self.selects),
+            self.date_now,
+        )
+        if key in self._geom_cache:
+            return self._geom_cache[key]
+        fpx = self.font_px(dock)
+        gap = max(4, fpx * 0.25)
+        kind = self.kind_for(dock, style)
+        if dock in ("left", "upper", "right"):
+            vertical = dock in ("left", "right")
+            full_w, full_h = self._row_geom(self.today_class, fpx, vertical)
+            if style:
+                if vertical:
+                    result = [self.progress_width, full_h]
+                else:
+                    result = [full_w, self.progress_width]
+            else:
+                result = [full_w, full_h]
+        elif kind == "center_simple":
+            sw, sh = self._row_geom(self.today_class, fpx, False)
+            clock_w, clock_h = self._temp_req("00:00:00", fpx * 2, False, ("黑体", max(4, int(fpx * 2))))
+            bar_h = max(2, int(fpx / 3.0))
+            w = max(sw, clock_w + gap * 2)
+            h = int(gap + bar_h + gap + clock_h + gap + sh + gap)
+            result = [w, h]
+        else:
+            # center 编辑界面估算
+            sw, sh = self._row_geom(self.today_class, fpx, False)
+            date_font = ("黑体", max(4, int(fpx * 0.5)))
+            dw, dh = self._temp_req(self.date_now, fpx * 0.5, False, date_font)
+            aw, ah = self._temp_req("<", fpx * 0.5, False, date_font)
+            bw, bh = self._temp_req(">", fpx * 0.5, False, date_font)
+            row_w = gap + aw + 10 + dw + 10 + bw + gap
+            row_h = max(dh, ah, bh) + gap
+            sel_w = 0
+            sel_h = 0
+            for name in self.selects:
+                w, h = self._temp_req(name, fpx, False)
+                sel_w = max(sel_w, w)
+                sel_h = max(sel_h, h)
+            rows = max(1, (len(self.selects) + 5) // 6)
+            w = max(sw, row_w, gap * 2 + 6 * (sel_w + gap))
+            h = int(gap + row_h + gap + sh + gap + rows * (sel_h + gap) + gap)
+            result = [w, h]
+        self._geom_cache[key] = result
+        return result
+
     def lesson_position_map(self, tokens):
         """第几个课节 -> tokens 下标。tokens 不包含本周/分隔头。"""
         result = {}
@@ -532,6 +630,22 @@ class calendar:
 
     # ---------- 内容重建 ----------
     def clear_content(self):
+        # 重建 mainland 子控件时，countdown 是一个独立的 Toplevel；
+        # 它也可能被当作 root 的子窗口一起销毁，必须先清掉引用。
+        self.hide_countdown()
+        # 拖动期间跨区/换样式需要立即重建内容，但 macOS 会把后续拖拽事件
+        # 送回发起按下的那个控件。因此把它移到窗口可视区外保留（不销毁），
+        # 其余旧控件照常销毁；release 后再随正常重建一起清掉。
+        keep = None
+        if self.dragging and self.press_widget is not None:
+            try:
+                if (
+                    self.press_widget is not self.mainland
+                    and self.press_widget.winfo_exists()
+                ):
+                    keep = self.press_widget
+            except Exception:
+                keep = None
         self.labels = []
         self.select_list = []
         self.select_labels = []
@@ -543,9 +657,33 @@ class calendar:
         self.todate = None
         self.clock_label = None
         self.canvas = None
-        try:
-            for w in list(self.mainland.winfo_children()):
+        for w in list(self.mainland.winfo_children()):
+            if w is keep:
+                self._park_offscreen(w)
+                continue
+            try:
                 w.destroy()
+            except Exception:
+                pass
+        if not self.dragging:
+            self.press_widget = None
+            self.press_role = None
+
+    def _park_offscreen(self, w):
+        """把仍要承接拖动事件的控件移到父窗口可视区外，保留 mapped 状态。"""
+        try:
+            w.pack_forget()
+        except Exception:
+            pass
+        try:
+            w.grid_forget()
+        except Exception:
+            pass
+        try:
+            rw = max(1, w.winfo_reqwidth())
+            rh = max(1, w.winfo_reqheight())
+            # 负数坐标要足够大，避免任何平台残留可见边角
+            w.place(x=-(30000 + rw), y=-(30000 + rh))
         except Exception:
             pass
 
@@ -679,7 +817,7 @@ class calendar:
         fpx = self.font_px("center")
         gap = max(4, fpx * 0.25)
         self.ml = Label(self.mainland)
-        self.todate = Label(self.mainland)
+        self.todate = Label(self.mainland, text=self.date_now)
         self.left_shift = Button(self.mainland, command=lambda: self.turn_date(-1))
         self.right_shift = Button(self.mainland, command=lambda: self.turn_date(1))
         self.select_list = []
@@ -876,14 +1014,20 @@ class calendar:
                 w, h = self.isl_frame.current_size(self.mainland)
             except Exception:
                 return
-            pw = self.progress_width
+            # 普通三侧进度条沿用旧样式：厚度 = 0.25×当前字高，颜色为亮灰
+            pw = max(2, int(self.font_px() * self.gaprate))
+            bar_color = "#C0C0C0"
             if self.nowgroup == "upper":
                 length = w * ratio
-                self.canvas.create_rectangle((w - length) / 2, 0, (w + length) / 2, pw, fill="grey", width=0)
+                self.canvas.create_rectangle(
+                    (w - length) / 2, 0, (w + length) / 2, pw, fill=bar_color, width=0
+                )
                 self.canvas.place(x=0, y=h - pw, relwidth=1.0, height=pw)
             else:
                 length = h * ratio
-                self.canvas.create_rectangle(0, (h - length) / 2, pw, (h + length) / 2, fill="grey", width=0)
+                self.canvas.create_rectangle(
+                    0, (h - length) / 2, pw, (h + length) / 2, fill=bar_color, width=0
+                )
                 if self.nowgroup == "left":
                     self.canvas.place(x=w - pw, y=0, width=pw, relheight=1.0)
                 else:
@@ -905,18 +1049,66 @@ class calendar:
         if self.content_kind == "edge_bar" or self.nowgroup == "center":
             self.hide_countdown()
             return
+        if self.count_win is not None:
+            try:
+                alive = self.count_win.winfo_exists()
+            except Exception:
+                alive = False
+            if not alive:
+                self.count_win = None
+                self.count_label = None
         if self.count_win is None:
             self.count_win = Toplevel(self.mainland)
             self.count_win.config(bg="black")
             self.count_label = Label(self.count_win, font=("黑体", self.b_size), fg="yellow", bg="black")
             self.count_label.pack()
-        if self.closing or (self.after_class and self.showt_afterclass):
-            self.count_label.config(text=fmt_mmss(self.left_sec))
+        vertical = self.nowgroup in ("left", "right")
+        fpx = self.font_px()
+        font_size = max(4, int(fpx))
+        gap = max(2, int(fpx * 0.25))
+        show_time = self.closing or (self.after_class and self.showt_afterclass)
+        if show_time:
+            time_text = fmt_mmss(self.left_sec)
         else:
-            self.count_label.config(text=self.offw)
+            time_text = ""
+        if vertical:
+            # 旧版左右两侧：MM 与 SS 上下两行，窗口宽度与课表条一致
+            if show_time:
+                text = time_text[:2] + "\n\n" + time_text[3:]
+                font = ("黑体", font_size)
+                # 时间已用显式换行拆成 MM / SS，不能让 wraplength 再按像素拆单个数字
+                wrap = 0
+            else:
+                text = self.offw
+                font = ("幼圆", font_size)
+                wrap = max(10, int(fpx * 1.5))
+        else:
+            # 旧版上方：单行 mm:ss
+            text = time_text if show_time else self.offw
+            font = ("黑体" if show_time else "幼圆", font_size)
+            wrap = 0
+        self.count_label.config(
+            text=text,
+            font=font,
+            fg="yellow",
+            bg="black",
+            wraplength=wrap,
+            anchor="center",
+            justify="center",
+        )
         self.count_label.update_idletasks()
-        w = self.count_label.winfo_reqwidth() + 20
-        h = self.count_label.winfo_reqheight() + 20
+        if vertical:
+            self.count_label.pack(fill="x")
+            try:
+                # 窗口宽度钳制到主课表条宽度；数字若更宽会被裁掉，不撑宽窗口
+                w = int(self.edge_text_geom[0])
+            except Exception:
+                w = int(self.count_label.winfo_reqwidth() + gap * 2)
+            h = int(self.count_label.winfo_reqheight() + gap * 2)
+        else:
+            self.count_label.pack()
+            w = int(self.count_label.winfo_reqwidth() + gap * 2)
+            h = int(self.count_label.winfo_reqheight() + gap * 2)
         self.isl_frame.to_isl(self.count_win, w, h, self.nowgroup, flush=False)
         top = self.ontop_afterclass if self.after_class else self.ontop_onclass
         try:
@@ -956,8 +1148,133 @@ class calendar:
     def persist_style(self):
         self.set_style(self.second_style, persist=True)
 
+    def _make_left_down_check(self):
+        """返回无参函数：左键此刻是否仍按住；平台无法查询时返回 None。
+
+        Windows/macOS 的 Tk 不一定把窗口外的 ButtonRelease 送回来，因此
+        拖动轮询里需要靠系统按键状态兜底合成 release。
+        """
+        if sys.platform == "win32":
+            try:
+                import ctypes
+
+                user32 = ctypes.windll.user32
+
+                def check():
+                    return bool(user32.GetAsyncKeyState(0x01) & 0x8000)
+
+                return check
+            except Exception:
+                return None
+        if sys.platform == "darwin":
+            try:
+                from AppKit import NSEvent
+
+                def check():
+                    return bool(NSEvent.pressedMouseButtons() & 1)
+
+                return check
+            except Exception:
+                try:
+                    import Quartz
+
+                    def check():
+                        return bool(
+                            Quartz.CGEventSourceButtonState(
+                                Quartz.kCGEventSourceStateCombinedSessionState,
+                                Quartz.kCGMouseButtonLeft,
+                            )
+                        )
+
+                    return check
+                except Exception:
+                    return None
+        if sys.platform.startswith("linux"):
+            # 优先 python-xlib，其次直接用 ctypes 调 XQueryPointer
+            try:
+                from Xlib import display, X
+
+                dpy = display.Display()
+                root = dpy.screen().root
+
+                def check():
+                    return bool(root.query_pointer().mask & X.Button1Mask)
+
+                return check
+            except Exception:
+                pass
+            try:
+                import ctypes
+                import ctypes.util
+
+                path = ctypes.util.find_library("X11")
+                if not path:
+                    return None
+                x11 = ctypes.CDLL(path)
+                x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+                x11.XOpenDisplay.restype = ctypes.c_void_p
+                dpy = x11.XOpenDisplay(None)
+                if not dpy:
+                    return None
+                x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+                x11.XDefaultRootWindow.restype = ctypes.c_ulong
+                root = x11.XDefaultRootWindow(dpy)
+                x11.XQueryPointer.argtypes = [
+                    ctypes.c_void_p,
+                    ctypes.c_ulong,
+                    ctypes.POINTER(ctypes.c_ulong),
+                    ctypes.POINTER(ctypes.c_ulong),
+                    ctypes.POINTER(ctypes.c_int),
+                    ctypes.POINTER(ctypes.c_int),
+                    ctypes.POINTER(ctypes.c_int),
+                    ctypes.POINTER(ctypes.c_int),
+                    ctypes.POINTER(ctypes.c_uint),
+                ]
+                x11.XQueryPointer.restype = ctypes.c_int
+
+                def check():
+                    root_return = ctypes.c_ulong()
+                    child_return = ctypes.c_ulong()
+                    root_x = ctypes.c_int()
+                    root_y = ctypes.c_int()
+                    win_x = ctypes.c_int()
+                    win_y = ctypes.c_int()
+                    mask = ctypes.c_uint()
+                    x11.XQueryPointer(
+                        dpy,
+                        root,
+                        ctypes.byref(root_return),
+                        ctypes.byref(child_return),
+                        ctypes.byref(root_x),
+                        ctypes.byref(root_y),
+                        ctypes.byref(win_x),
+                        ctypes.byref(win_y),
+                        ctypes.byref(mask),
+                    )
+                    # X.Button1Mask == 1 << 8
+                    return bool(mask.value & (1 << 8))
+
+                return check
+            except Exception:
+                return None
+        return None
+
     def drag_press(self, event):
         self.press_point = (event.x_root, event.y_root)
+        self.press_widget = event.widget
+        # 是否“单击即切换样式”在按下时就定下来，不能用 release 时的控件身份判断，
+        # 因为拖动中内容可能已重建（原控件被 park 到屏幕外）。
+        self.press_role = None
+        if self.nowgroup in ("left", "upper", "right"):
+            self.press_role = "toggle"
+        elif self.nowgroup == "center" and not self.second_style:
+            self.press_role = "toggle"
+        elif (
+            self.nowgroup == "center"
+            and self.second_style
+            and event.widget in (self.margin_left, self.margin_right)
+        ):
+            self.press_role = "toggle"
         # 以窗口当前 dock 为起始区域：单击切换不会因为点到了屏幕 1/4 分界线而误换位置，
         # 真正拖动并越过区域时才切换。
         self.drag_zone = self.nowgroup
@@ -966,13 +1283,23 @@ class calendar:
         self.drag_moved = 0
         self.dragging = True
         self.style_applied = False
+        # motion/release 必须全局绑定：跨区切换会重建并销毁当前按住的子控件，
+        # 若绑在子控件上，拖动事件链会中断（无法拖回、release 丢失）。
+        self.mainland.bind_all("<B1-Motion>", self.drag_motion)
+        self.mainland.bind_all("<ButtonRelease-1>", self.drag_release)
+        try:
+            self.mainland.grab_set()
+        except Exception:
+            pass
         self.isl_frame.drag_now(self.mainland)
         self.layout_dirty = True
 
     def drag_motion(self, event):
+        self.handle_drag_pointer(event.x_root, event.y_root)
+
+    def handle_drag_pointer(self, mx, my):
         if not self.dragging:
             return
-        mx, my = event.x_root, event.y_root
         if self.press_point:
             self.drag_moved = max(
                 self.drag_moved,
@@ -985,7 +1312,10 @@ class calendar:
             self.nowgroup = zone
             self.set_style(bool(self.drag_defaults.get(zone, False)), persist=True)
             self.style_applied = True
-            size = self.isl_frame.island_size(self.mainland)
+            try:
+                size = self.preview_size(zone, self.second_style)
+            except Exception:
+                size = self.isl_frame.island_size(self.mainland)
             base = self.base_center(zone, size[0], size[1])
             self.drag_ref = (base[0], base[1])
             self.layout_dirty = True
@@ -1011,7 +1341,11 @@ class calendar:
         return [self.isl_frame.screen_width / 2, self.isl_frame.screen_height / 2]
 
     def recompute_drag_goal(self, mx, my):
-        size = self.isl_frame.island_size(self.mainland)
+        built_key = (self.drag_zone, self.second_style, self.after_class, self.closing)
+        if built_key == self._built_for:
+            size = self.isl_frame.island_size(self.mainland)
+        else:
+            size = self.preview_size(self.drag_zone, self.second_style)
         w, h = size
         base = self.base_center(self.drag_zone, w, h)
         ref = self.drag_ref
@@ -1021,32 +1355,38 @@ class calendar:
         fy = 0.1 / (abs(dy) / max(self.isl_frame.screen_height, 1) + 0.1)
         cx = base[0] + dx * fx
         cy = base[1] + dy * fy
+        # 目标中心必须始终留在屏幕内，防止任何基准残留造成窗口飞出
+        cx = min(max(cx, w / 2), max(w / 2, self.isl_frame.screen_width - w / 2))
+        cy = min(max(cy, h / 2), max(h / 2, self.isl_frame.screen_height - h / 2))
         x = cx - w / 2
         y = cy - h / 2
-        self.isl_frame.set_drag_goal(self.mainland, x, y)
+        self.isl_frame.set_drag_goal(self.mainland, x, y, w, h)
 
-    def drag_release(self, event):
+    def drag_release(self, event=None):
         if not self.dragging:
             return
         clicked = self.drag_click and self.drag_moved <= 9
         zone = self.drag_zone
         self.dragging = False
         self.isl_frame.drag_end(self.mainland)
-        if clicked:
-            # 边缘三侧单击任意处切换；center 编辑器由把手处理
-            if zone in ("left", "upper", "right") or (
-                zone == "center" and self.content_kind == "center_simple"
-            ) or (
-                zone == "center"
-                and self.content_kind == "center_editor"
-                and event.widget in (self.margin_left, self.margin_right)
-            ):
-                self.set_style(not self.second_style, persist=True)
-        else:
+        try:
+            self.mainland.grab_release()
+        except Exception:
+            pass
+        try:
+            self.mainland.unbind_all("<B1-Motion>")
+            self.mainland.unbind_all("<ButtonRelease-1>")
+        except Exception:
+            pass
+        if clicked and self.press_role == "toggle":
+            self.set_style(not self.second_style, persist=True)
+        elif not clicked:
             if self.style_applied:
                 self.persist_style()
             else:
                 self.set_style(bool(self.drag_defaults.get(zone, False)), persist=True)
+        self.press_widget = None
+        self.press_role = None
         self.layout_dirty = True
 
     def bind_drag(self):
@@ -1064,8 +1404,6 @@ class calendar:
             targets = [t for t in targets if t is not None]
         for t in set(targets):
             t.bind("<ButtonPress-1>", self.drag_press)
-            t.bind("<B1-Motion>", self.drag_motion)
-            t.bind("<ButtonRelease-1>", self.drag_release)
 
     # ---------- 主渲染 ----------
     def apply_layout(self):
@@ -1103,7 +1441,7 @@ class calendar:
             self.place_text_widgets()
             w, h = self.edge_text_geom[0], self.edge_text_geom[1]
             self.isl_frame.to_isl(self.mainland, w, h, self.nowgroup, flush=False)
-            if self.after_class or self.closing:
+            if (self.after_class or self.closing) and not self.dragging:
                 self.show_countdown()
             else:
                 self.hide_countdown()
@@ -1120,6 +1458,7 @@ class calendar:
             self.hide_countdown()
             self.isl_frame.to_isl(self.mainland, w, h, "center", flush=False)
         self.bind_drag()
+        self._built_for = (self.nowgroup, self.second_style, self.after_class, self.closing)
         self.layout_dirty = False
 
     def update_clock(self):
@@ -1135,6 +1474,21 @@ class calendar:
                 break
             now = datetime.datetime.now()
             self.update_state(now)
+            # 拖动时鼠标可能已离开窗口：主动轮询全局指针，保证跨区后仍能追踪目标
+            if self.dragging:
+                try:
+                    px, py = self.mainland.winfo_pointerxy()
+                    self.handle_drag_pointer(px, py)
+                except Exception:
+                    pass
+                # 系统层面已松开但 release 事件没送达（例如在窗口外松手）：
+                # 由轮询兜底合成一次 release。
+                if self._btn_left_down is not None:
+                    try:
+                        if not self._btn_left_down():
+                            self.drag_release(None)
+                    except Exception:
+                        pass
             self.tick += 1
             # 状态/下课切换变化会触发重排
             changed_state = (
