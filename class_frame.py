@@ -136,6 +136,13 @@ class movements:
             win.overrideredirect(True)
             win.attributes("-alpha", 0.92)
             win.config(bg="black")
+            if sys.platform == "win32":
+                # Windows 上仅 overrideredirect 不足以防任务栏按钮；
+                # -toolwindow 使窗口不进入任务栏与 Alt-Tab 列表。
+                try:
+                    win.attributes("-toolwindow", True)
+                except Exception:
+                    pass
             rec = self._new_rec(win)
             self.isls.append(rec)
             rec["goal"] = [w, h, 0, 0]
@@ -232,6 +239,23 @@ class movements:
                     x += r["goal"][0] + self.island_gap
 
     def refresh_isl(self):
+        # 外部销毁（例如在任务栏关闭倒计时窗口）会留下幽灵记录：
+        # 窗口已不存在但仍在布局列表中占位，导致新窗口与旧位置之间出现空档。
+        dead = []
+        for r in list(self.isls):
+            try:
+                alive = bool(r["win"].winfo_exists())
+            except Exception:
+                alive = False
+            if not alive:
+                dead.append(r)
+        for r in dead:
+            try:
+                self.isls.remove(r)
+            except ValueError:
+                pass
+        if dead:
+            self.cal_pos()
         dead = []
         for r in self.isls:
             win = r["win"]
@@ -786,39 +810,43 @@ class calendar:
         """主窗口临时切为“提示词 + 课名”的旧式提示布局。"""
         fpx = self.font_px()
         gap = max(4, int(fpx * 0.25))
+        vertical = self.nowgroup in ("left", "right")
+        # 提示词与课名统一使用当前课节在该 dock 上的字符字号规则
+        lesson_font = self.label_font(name, fpx, vertical)
         if self.content_kind != "prompt_main":
             self.clear_content()
             self.content_kind = "prompt_main"
             self.prompt_label = Label(
                 self.mainland,
                 text=self.onw,
-                font=self.label_font(self.onw, fpx, False),
+                font=lesson_font,
                 fg="yellow",
                 bg="black",
-                wraplength=fpx * 1.5,
+                # 提示与课名必须保持一整行，不按像素折行；过长交给字号缩小处理
+                wraplength=0,
             )
             self.prompt_class_label = Label(
                 self.mainland,
                 text=name,
-                font=self.label_font(name, fpx, False),
+                font=lesson_font,
                 fg="yellow",
                 bg="black",
-                wraplength=fpx * 1.5,
+                wraplength=0,
             )
         else:
             self.prompt_label.config(
                 text=self.onw,
-                font=self.label_font(self.onw, fpx, False),
+                font=lesson_font,
                 fg="yellow",
                 bg="black",
-                wraplength=fpx * 1.5,
+                wraplength=0,
             )
             self.prompt_class_label.config(
                 text=name,
-                font=self.label_font(name, fpx, False),
+                font=lesson_font,
                 fg="yellow",
                 bg="black",
-                wraplength=fpx * 1.5,
+                wraplength=0,
             )
         self.prompt_label.update_idletasks()
         self.prompt_class_label.update_idletasks()
@@ -826,7 +854,6 @@ class calendar:
         ph = self.prompt_label.winfo_reqheight()
         cw = self.prompt_class_label.winfo_reqwidth()
         ch = self.prompt_class_label.winfo_reqheight()
-        vertical = self.nowgroup in ("left", "right")
         if vertical:
             # 左右：课名与提示词同一行并排（对齐旧版 a/c 的提示结构）
             total_w = pw + cw + gap * 3
@@ -1015,6 +1042,7 @@ class calendar:
         width = max(schedule_w, row_w + gap * 2)
         # 候选课程 6 个一行
         sel_w = max((lab.winfo_reqwidth() for lab in self.select_list), default=fpx)
+        sel_h = max((lab.winfo_reqheight() for lab in self.select_list), default=fpx)
         per_row = 6
         width = max(width, gap * 2 + per_row * (sel_w + gap))
         y = gap + row_h + gap
@@ -1026,12 +1054,18 @@ class calendar:
         y += schedule_h + gap
         # 放置候选
         sy = y
+        # 按最终窗口宽度均分 6 格，旧版即“先定窗口宽，再算整体格点”
+        cell_w = max(1, (width - gap * 2) / per_row)
         for i, lab in enumerate(self.select_list):
-            lab.place(x=gap + (i % per_row) * (sel_w + gap), y=sy)
-            if i % per_row == per_row - 1:
-                sy += lab.winfo_reqheight() + gap
-        if self.select_list:
-            sy += max(lab.winfo_reqheight() for lab in self.select_list) + gap
+            row, col = divmod(i, per_row)
+            row_y = y + row * (sel_h + gap)
+            # 统一格点：每个“更换选项”在各自的格子里水平居中
+            lab.place(
+                x=gap + col * cell_w + (cell_w - lab.winfo_reqwidth()) / 2,
+                y=row_y + (sel_h - lab.winfo_reqheight()) / 2,
+            )
+            if row == (len(self.select_list) - 1) // per_row:
+                sy = row_y + sel_h + gap
         # 日期行居中放在课表上方
         date_x = (width - row_w) / 2
         self.left_shift.place(x=date_x, y=gap)
@@ -1237,7 +1271,8 @@ class calendar:
         )
         self.count_label.update_idletasks()
         if vertical:
-            self.count_label.pack(fill="x")
+            # 占满整个倒计时窗口，配合 anchor="center" 让内容上下左右都居中
+            self.count_label.pack(expand=True, fill="both")
             try:
                 # 窗口宽度钳制到主课表条宽度；数字若更宽会被裁掉，不撑宽窗口
                 w = int(self.edge_text_geom[0])
@@ -1245,7 +1280,7 @@ class calendar:
                 w = int(self.count_label.winfo_reqwidth() + gap * 2)
             h = int(self.count_label.winfo_reqheight() + gap * 2)
         else:
-            self.count_label.pack()
+            self.count_label.pack(expand=True, fill="both")
             w = int(self.count_label.winfo_reqwidth() + gap * 2)
             h = int(self.count_label.winfo_reqheight() + gap * 2)
         self.isl_frame.to_isl(self.count_win, w, h, self.nowgroup, flush=False)
@@ -1448,7 +1483,7 @@ class calendar:
             base = self.base_center(zone, size[0], size[1])
             self.drag_ref = (base[0], base[1])
             self.layout_dirty = True
-        if mx - self.press_point[0] > 3 or my - self.press_point[1] > 3:
+        if abs(mx - self.press_point[0]) > 3 or abs(my - self.press_point[1]) > 3:
             self.drag_click = False
         if not self.drag_click and not self.style_applied:
             self.set_style(bool(self.drag_defaults.get(self.drag_zone, False)))
@@ -1519,6 +1554,12 @@ class calendar:
     def bind_drag(self):
         if self.mainland is None:
             return
+        # mainland 是唯一跨内容重建存活的控件，可能残留旧 content 类型的
+        # 拖拽绑定（例如从 center_simple 切到 center 编辑器后误触发窗口移动）。
+        try:
+            self.mainland.unbind("<ButtonPress-1>")
+        except Exception:
+            pass
         targets = []
         if self.nowgroup == "center" and self.second_style:
             for m in (self.margin_left, self.margin_right):
