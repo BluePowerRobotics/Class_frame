@@ -13,6 +13,7 @@ ISLAND_GAP = 30
 DOCKS = ("left", "upper", "right", "center")
 WEEK_NAMES = ["一", "二", "三", "四", "五", "六", "日"]
 SPECIAL_TEXT = {"周"} | set(WEEK_NAMES) | {"|"}
+CLI_TIME_OFFSET = None  # 由命令行 --delta 传入（秒），优先于 config，不写回文件
 
 
 def _num(v, default=0):
@@ -53,7 +54,17 @@ def migrate_config(cfg):
             if old == "u":
                 legacy_u = True
             cfg[key] = [_pos_map(old)]
-    cfg.setdefault("secondStyle", bool(legacy_u))
+    old_global_style = cfg.get("secondStyle", bool(legacy_u))
+    if isinstance(old_global_style, (list, tuple)):
+        old_global_style = old_global_style[0] if old_global_style else False
+    # 全局 secondStyle 只作为运行期状态，不再写入配置；
+    # 持久化的改为“上课/课间进入时是否使用 secondStyle”两个独立开关。
+    cfg.pop("secondStyle", None)
+    cfg.setdefault("上课默认使用secondStyle", bool(old_global_style))
+    cfg.setdefault("下课默认使用secondStyle", bool(old_global_style))
+    cfg.setdefault("上课提示时长", [6])
+    cfg.setdefault("下课提示时长", [6])
+    cfg.setdefault("时间偏移（秒）", [0])
     style_defaults = cfg.setdefault("拖动默认样式", {})
     for d in DOCKS:
         if d not in style_defaults:
@@ -286,6 +297,13 @@ class calendar:
         self.total_sec = 0
         self.left_sec = 0
         self.highlight = None
+        self.prompt_left = 0
+        self.off_prompt_left = 0
+        self.prompt_duration = 6
+        self.off_prompt_duration = 6
+        self.onclass_second_style = False
+        self.offclass_second_style = False
+        self.time_offset = 0
         self.tick = 0
         self.layout_dirty = True
         self._geom_cache = {}
@@ -312,6 +330,8 @@ class calendar:
         self.content_kind = None
         self.count_win = None
         self.count_label = None
+        self.prompt_label = None
+        self.prompt_class_label = None
 
         # 拖动状态
         self.dragging = False
@@ -331,9 +351,11 @@ class calendar:
         self.select_labels = []
 
     # ---------- 载入 ----------
+    def now_time(self):
+        """系统时间 + 配置/命令行偏移（秒），供状态机与界面取“当前时间”。"""
+        return datetime.datetime.now() + datetime.timedelta(seconds=self.time_offset)
+
     def load_class(self):
-        today = datetime.datetime.now()
-        self.to_week = datetime.date(today.year, today.month, today.day).weekday()
         with open("config.json", encoding="utf-8") as file:
             self.config = migrate_config(json.load(file))
         cfg = self.config
@@ -345,6 +367,12 @@ class calendar:
         self.offw = _text(cfg, "结束提示", "下课时间")
         self.onclass_default_pos = _text(cfg, "上课默认位置", "upper")
         self.offclass_default_pos = _text(cfg, "下课默认位置", "upper")
+        self.onclass_second_style = _flag(cfg, "上课默认使用secondStyle", 0)
+        self.offclass_second_style = _flag(cfg, "下课默认使用secondStyle", 0)
+        self.prompt_duration = max(1, int(_num(cfg.get("上课提示时长", [6])[0], 6)))
+        self.off_prompt_duration = max(1, int(_num(cfg.get("下课提示时长", [6])[0], 6)))
+        file_offset = int(_num(cfg.get("时间偏移（秒）", [0])[0], 0))
+        self.time_offset = file_offset if CLI_TIME_OFFSET is None else CLI_TIME_OFFSET
         self.showt_afterclass = _flag(cfg, "下课显示倒计时", 1)
         self.showt_onclass = _flag(cfg, "上课显示倒计条", 1)
         self.ontop_afterclass = _flag(cfg, "下课置顶", 1)
@@ -352,7 +380,6 @@ class calendar:
         self.b_size = _num(cfg.get("文字大小", [40])[0], 40)
         self.ac_size = _num(cfg.get("竖直显示的文字大小", [28])[0], 28)
         self.progress_width = max(1, _num(cfg.get("进度条宽度", [8])[0], 8))
-        self.second_style = bool(cfg.get("secondStyle", False))
         self.drag_defaults = cfg.get("拖动默认样式", {})
         for d in DOCKS:
             self.drag_defaults.setdefault(d, False)
@@ -388,19 +415,22 @@ class calendar:
         self.isl_frame.progress_width = self.progress_width
         self.load_class()
         self.week = WEEK_NAMES
-        today = datetime.datetime.now()
+        today = self.now_time()
         self.date_now = today.strftime("%Y-%m-%d")
+        self.date_view = today
         to_week = datetime.date(today.year, today.month, today.day).weekday()
         self.today_class = ["周"] + [self.week[to_week]] + ["|"] + self.classes[str(to_week + 1)]
         for rec in self.class_change:
             if rec[0] == self.date_now:
                 self.today_class = rec[1]
         self.changing_class = list(self.today_class)
-        self.update_state(datetime.datetime.now())
+        self.update_state(self.now_time())
         if self.after_class:
             self.nowgroup = self.offclass_default_pos
+            self.second_style = self.offclass_second_style
         else:
             self.nowgroup = self.onclass_default_pos
+            self.second_style = self.onclass_second_style
         self.l_nowgroup = self.nowgroup
         self.mainland.attributes("-topmost", bool(self.ontop_onclass))
         self.layout_dirty = True
@@ -423,6 +453,8 @@ class calendar:
                 self.highlight = None
                 self.total_sec = 600.0
                 self.left_sec = last_off_sec + 600 - now_sec
+                self.prompt_left = 0
+                self.off_prompt_left = 0
                 return
             if now_sec >= last_off_sec + 600:
                 self.quit_app()
@@ -437,11 +469,17 @@ class calendar:
                 self.highlight = i
                 self.total_sec = float(ends[i] - starts[i]) * 60
                 self.left_sec = ends[i] * 60 - now_sec
+                # 进入本课节后的前 N 秒用于显示“上课提示”（默认 6 秒）
+                elapsed = int(now_sec - starts[i] * 60)
+                self.prompt_left = max(0, self.prompt_duration - elapsed)
+                self.off_prompt_left = 0
                 return
         # 课间 / 放学前后
         self.closing = False
         self.after_class = True
         self.state_index = None
+        self.prompt_left = 0
+        self.off_prompt_left = 0
         self.highlight = None
         next_i = None
         for i in range(n):
@@ -453,10 +491,27 @@ class calendar:
             self.highlight = next_i
             self.total_sec = float(starts[next_i] * 60 - (ends[next_i - 1] * 60 if next_i else 0))
             self.left_sec = starts[next_i] * 60 - now_sec
+            if next_i > 0:
+                # 刚下课的前 N 秒（默认 6s）在倒计时栏先显示“下课提示”
+                off_elapsed = int(now_sec - ends[next_i - 1] * 60)
+                self.off_prompt_left = max(0, self.off_prompt_duration - off_elapsed)
+            else:
+                self.off_prompt_left = 0
         else:
             self.state_next = None
             self.total_sec = 1.0
             self.left_sec = 0.0
+            self.off_prompt_left = 0
+
+    def apply_state_defaults(self):
+        """状态切换时套用该状态配置的默认停靠位置与默认样式。"""
+        if self.after_class:
+            self.nowgroup = self.offclass_default_pos
+            self.set_style(self.offclass_second_style)
+        else:
+            self.nowgroup = self.onclass_default_pos
+            self.set_style(self.onclass_second_style)
+        self.layout_dirty = True
 
     def quit_app(self):
         try:
@@ -657,6 +712,8 @@ class calendar:
         self.todate = None
         self.clock_label = None
         self.canvas = None
+        self.prompt_label = None
+        self.prompt_class_label = None
         for w in list(self.mainland.winfo_children()):
             if w is keep:
                 self._park_offscreen(w)
@@ -707,6 +764,86 @@ class calendar:
             self.build_center_widgets()
         else:
             self.build_edge_text_widgets()
+
+    def _prompt_class_name(self):
+        """上课开始后的前 N 秒（默认 6s）返回当前课节名称；否则返回 None。"""
+        if self.dragging or self.closing or self.after_class:
+            return None
+        if self.nowgroup == "center" or self.prompt_left <= 0:
+            return None
+        if self.state_index is None:
+            return None
+        pos_map, _ = self.lesson_position_map(self.today_class)
+        idx = pos_map.get(self.state_index)
+        if idx is None:
+            return None
+        name = self.today_class[idx]
+        if name in SPECIAL_TEXT or name == "无":
+            return None
+        return name
+
+    def _ensure_prompt_main(self, name):
+        """主窗口临时切为“提示词 + 课名”的旧式提示布局。"""
+        fpx = self.font_px()
+        gap = max(4, int(fpx * 0.25))
+        if self.content_kind != "prompt_main":
+            self.clear_content()
+            self.content_kind = "prompt_main"
+            self.prompt_label = Label(
+                self.mainland,
+                text=self.onw,
+                font=self.label_font(self.onw, fpx, False),
+                fg="yellow",
+                bg="black",
+                wraplength=fpx * 1.5,
+            )
+            self.prompt_class_label = Label(
+                self.mainland,
+                text=name,
+                font=self.label_font(name, fpx, False),
+                fg="yellow",
+                bg="black",
+                wraplength=fpx * 1.5,
+            )
+        else:
+            self.prompt_label.config(
+                text=self.onw,
+                font=self.label_font(self.onw, fpx, False),
+                fg="yellow",
+                bg="black",
+                wraplength=fpx * 1.5,
+            )
+            self.prompt_class_label.config(
+                text=name,
+                font=self.label_font(name, fpx, False),
+                fg="yellow",
+                bg="black",
+                wraplength=fpx * 1.5,
+            )
+        self.prompt_label.update_idletasks()
+        self.prompt_class_label.update_idletasks()
+        pw = self.prompt_label.winfo_reqwidth()
+        ph = self.prompt_label.winfo_reqheight()
+        cw = self.prompt_class_label.winfo_reqwidth()
+        ch = self.prompt_class_label.winfo_reqheight()
+        vertical = self.nowgroup in ("left", "right")
+        if vertical:
+            # 左右：课名与提示词同一行并排（对齐旧版 a/c 的提示结构）
+            total_w = pw + cw + gap * 3
+            max_h = max(ph, ch)
+            h = max_h + gap * 2
+            x = gap
+            self.prompt_label.place(x=x, y=(h - ph) / 2)
+            self.prompt_class_label.place(x=x + pw + gap, y=(h - ch) / 2)
+        else:
+            # 上方：提示词在上、课名在下（对齐旧版 b）
+            total_w = max(pw, cw)
+            h = gap + ph + gap + ch + gap
+            self.prompt_label.place(x=(total_w - pw) / 2, y=gap)
+            self.prompt_class_label.place(x=(total_w - cw) / 2, y=gap + ph + gap)
+        self.hide_countdown()
+        flush = self.second_style and self.nowgroup in ("left", "upper", "right")
+        self.isl_frame.to_isl(self.mainland, total_w, h, self.nowgroup, flush=flush)
 
     # 普通三侧文字
     def build_edge_text_widgets(self):
@@ -769,7 +906,7 @@ class calendar:
         # 时钟
         self.clock_label = Label(
             self.mainland,
-            text=datetime.datetime.now().strftime("%H:%M:%S"),
+            text=self.now_time().strftime("%H:%M:%S"),
             font=("黑体", max(4, int(fpx * 2))),
             fg="white",
             bg="black",
@@ -1045,8 +1182,8 @@ class calendar:
             self.canvas.place(x=0, y=0, relwidth=1.0, height=bar_h)
 
     # ---------- 下课倒计时窗口 ----------
-    def show_countdown(self):
-        if self.content_kind == "edge_bar" or self.nowgroup == "center":
+    def show_countdown(self, allow_bar=False):
+        if (self.content_kind == "edge_bar" and not allow_bar) or self.nowgroup == "center":
             self.hide_countdown()
             return
         if self.count_win is not None:
@@ -1066,7 +1203,9 @@ class calendar:
         fpx = self.font_px()
         font_size = max(4, int(fpx))
         gap = max(2, int(fpx * 0.25))
-        show_time = self.closing or (self.after_class and self.showt_afterclass)
+        show_time = self.closing or (
+            self.after_class and self.showt_afterclass and self.off_prompt_left <= 0
+        )
         if show_time:
             time_text = fmt_mmss(self.left_sec)
         else:
@@ -1132,21 +1271,11 @@ class calendar:
             return "upper"
         return "center"
 
-    def set_style(self, value, persist=False):
+    def set_style(self, value):
         value = bool(value)
         if value != self.second_style:
             self.second_style = value
             self.layout_dirty = True
-        if persist:
-            try:
-                self.config["secondStyle"] = value
-                with open("config.json", "w", encoding="utf-8") as file:
-                    json.dump(self.config, file, ensure_ascii=False, indent=2)
-            except Exception:
-                pass
-
-    def persist_style(self):
-        self.set_style(self.second_style, persist=True)
 
     def _make_left_down_check(self):
         """返回无参函数：左键此刻是否仍按住；平台无法查询时返回 None。
@@ -1310,7 +1439,7 @@ class calendar:
             # 跨区：区域基准写入“起始点”，并按该区默认样式切换
             self.drag_zone = zone
             self.nowgroup = zone
-            self.set_style(bool(self.drag_defaults.get(zone, False)), persist=True)
+            self.set_style(bool(self.drag_defaults.get(zone, False)))
             self.style_applied = True
             try:
                 size = self.preview_size(zone, self.second_style)
@@ -1322,7 +1451,7 @@ class calendar:
         if mx - self.press_point[0] > 3 or my - self.press_point[1] > 3:
             self.drag_click = False
         if not self.drag_click and not self.style_applied:
-            self.set_style(bool(self.drag_defaults.get(self.drag_zone, False)), persist=False)
+            self.set_style(bool(self.drag_defaults.get(self.drag_zone, False)))
             self.style_applied = True
             self.layout_dirty = True
         self.recompute_drag_goal(mx, my)
@@ -1379,12 +1508,10 @@ class calendar:
         except Exception:
             pass
         if clicked and self.press_role == "toggle":
-            self.set_style(not self.second_style, persist=True)
+            self.set_style(not self.second_style)
         elif not clicked:
-            if self.style_applied:
-                self.persist_style()
-            else:
-                self.set_style(bool(self.drag_defaults.get(zone, False)), persist=True)
+            if not self.style_applied:
+                self.set_style(bool(self.drag_defaults.get(zone, False)))
         self.press_widget = None
         self.press_role = None
         self.layout_dirty = True
@@ -1407,6 +1534,12 @@ class calendar:
 
     # ---------- 主渲染 ----------
     def apply_layout(self):
+        prompt_name = self._prompt_class_name()
+        if prompt_name is not None:
+            self._ensure_prompt_main(prompt_name)
+            self._built_for = (self.nowgroup, self.second_style, self.after_class, self.closing)
+            self.layout_dirty = False
+            return
         cur_fpx = self.font_px()
         if (
             self.content_kind in ("edge_text", "center_simple", "center_editor")
@@ -1432,7 +1565,11 @@ class calendar:
             full_w, full_h = self.measure_tokens(self.today_class, fpx, vertical)
             w = self.progress_width if vertical else full_w
             h = full_h if vertical else self.progress_width
-            self.hide_countdown()
+            # 刚下课的前 N 秒：即使是小模式也借倒计时栏显示“下课提示”
+            if self.off_prompt_left > 0 and not self.closing:
+                self.show_countdown(allow_bar=True)
+            else:
+                self.hide_countdown()
             self.canvas.place(x=0, y=0, relwidth=1.0, relheight=1.0)
             self.isl_frame.to_isl(self.mainland, w, h, self.nowgroup, flush=True)
         elif self.content_kind == "edge_text":
@@ -1463,7 +1600,7 @@ class calendar:
 
     def update_clock(self):
         if self.clock_label is not None:
-            text = datetime.datetime.now().strftime("%H:%M:%S")
+            text = self.now_time().strftime("%H:%M:%S")
             if self.clock_label.cget("text") != text:
                 self.clock_label.config(text=text)
 
@@ -1472,7 +1609,7 @@ class calendar:
         while True:
             if os.path.exists(".stop_signal"):
                 break
-            now = datetime.datetime.now()
+            now = self.now_time()
             self.update_state(now)
             # 拖动时鼠标可能已离开窗口：主动轮询全局指针，保证跨区后仍能追踪目标
             if self.dragging:
@@ -1491,16 +1628,23 @@ class calendar:
                         pass
             self.tick += 1
             # 状态/下课切换变化会触发重排
+            prev_after = getattr(self, "_last_after", None)
+            prev_closing = getattr(self, "_last_closing", None)
             changed_state = (
-                self.after_class != getattr(self, "_last_after", None)
-                or self.closing != getattr(self, "_last_closing", None)
+                self.after_class != prev_after
+                or self.closing != prev_closing
                 or self.state_index != getattr(self, "_last_idx", None)
             )
+            if changed_state:
+                if not self.dragging and (
+                    self.after_class != prev_after or self.closing != prev_closing
+                ):
+                    self.apply_state_defaults()
+                else:
+                    self.layout_dirty = True
             self._last_after = self.after_class
             self._last_closing = self.closing
             self._last_idx = self.state_index
-            if changed_state:
-                self.layout_dirty = True
             # 60Hz 逻辑、30Hz 渲染、布局最多 10Hz + 状态变化即时
             if self.layout_dirty or self.tick % 6 == 0:
                 self.apply_layout()
@@ -1515,6 +1659,24 @@ class calendar:
 
 if os.path.exists(".stop_signal"):
     os.remove(".stop_signal")
+
+argv = sys.argv[1:]
+i = 0
+while i < len(argv):
+    arg = argv[i]
+    if arg in ("--delta", "-d"):
+        if i + 1 < len(argv):
+            try:
+                CLI_TIME_OFFSET = int(argv[i + 1])
+            except Exception:
+                CLI_TIME_OFFSET = 0
+            i += 1
+    elif arg.startswith("--delta="):
+        try:
+            CLI_TIME_OFFSET = int(arg.split("=", 1)[1])
+        except Exception:
+            CLI_TIME_OFFSET = 0
+    i += 1
 
 app = calendar()
 try:

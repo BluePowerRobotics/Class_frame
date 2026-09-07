@@ -12,6 +12,9 @@ def save_settings(entries):
         "文字大小",
         "竖直显示的文字大小",
         "进度条宽度",
+        "上课提示时长",
+        "下课提示时长",
+        "时间偏移（秒）",
         "left上课缩放",
         "left下课缩放",
         "upper上课缩放",
@@ -21,11 +24,11 @@ def save_settings(entries):
     positions = {"上课默认位置", "下课默认位置"}
     for key, entry in entries.items():
         raw = entry.get()
-        if key == "secondStyle":
-            config[key] = raw == "是"
-        elif key.startswith("拖入") and key.endswith("使用secondStyle"):
+        if key.startswith("拖入") and key.endswith("使用secondStyle"):
             dock = key[2 : key.index("时")]
             config.setdefault("拖动默认样式", {})[dock] = raw == "是"
+        elif key in ("上课默认使用secondStyle", "下课默认使用secondStyle"):
+            config[key] = raw == "是"
         elif key in positions:
             config[key] = [DOCK_TO_KEY.get(raw, raw)]
         elif key in flags:
@@ -86,7 +89,15 @@ def migrate_config(cfg):
         if key in cfg:
             old = cfg[key][0] if isinstance(cfg[key], list) and cfg[key] else cfg[key]
             cfg[key] = [pos_map.get(old, old if old in DOCKS else "upper")]
-    cfg.setdefault("secondStyle", False)
+    old_global_style = cfg.get("secondStyle", False)
+    if isinstance(old_global_style, (list, tuple)):
+        old_global_style = old_global_style[0] if old_global_style else False
+    cfg.pop("secondStyle", None)
+    cfg.setdefault("上课默认使用secondStyle", bool(old_global_style))
+    cfg.setdefault("下课默认使用secondStyle", bool(old_global_style))
+    cfg.setdefault("上课提示时长", [6])
+    cfg.setdefault("下课提示时长", [6])
+    cfg.setdefault("时间偏移（秒）", [0])
     defaults = cfg.setdefault("拖动默认样式", {})
     for d in DOCKS:
         defaults.setdefault(d, False)
@@ -549,7 +560,8 @@ def create_parameter_settings(parent):
             ("下课显示倒计时", "课间/放学时显示倒计时", "bool"),
             ("上课置顶", "上课时窗口置顶", "bool"),
             ("下课置顶", "课间/放学时窗口置顶", "bool"),
-            ("secondStyle", "启用第二样式（三侧仅进度条/居中编辑界面）", "bool"),
+            ("上课提示时长", "上课提示显示时长（秒）", "number"),
+            ("下课提示时长", "下课提示显示时长（秒）", "number"),
         ]),
         ("字号与尺寸", [
             ("文字大小", "横向基准字号（上方/居中）", "number"),
@@ -564,6 +576,8 @@ def create_parameter_settings(parent):
         ("停靠位置", [
             ("上课默认位置", "上课时停靠", "dock"),
             ("下课默认位置", "课间/放学时停靠", "dock"),
+            ("上课默认使用secondStyle", "上课时使用第二样式", "bool"),
+            ("下课默认使用secondStyle", "课间/放学时使用第二样式", "bool"),
         ]),
         ("拖入区域时默认使用的样式", [
             ("拖入left时使用secondStyle", "拖到左侧时默认第二样式", "bool"),
@@ -575,6 +589,9 @@ def create_parameter_settings(parent):
             ("开始提示", "上课前提示文字", "text"),
             ("结束提示", "下课时提示文字", "text"),
             ("结尾提示", "放学提示文字", "text"),
+        ]),
+        ("时间校正", [
+            ("时间偏移（秒）", "系统时间偏移（秒，默认0；非联网教室时钟错位时使用）", "number"),
         ]),
     ]
 
