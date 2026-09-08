@@ -373,6 +373,7 @@ class calendar:
         self.x_start = 0
         self.y_start = 0
         self.select_labels = []
+        self.editor_dirty = False
 
     # ---------- 载入 ----------
     def now_time(self):
@@ -712,6 +713,17 @@ class calendar:
         # 重建 mainland 子控件时，countdown 是一个独立的 Toplevel；
         # 它也可能被当作 root 的子窗口一起销毁，必须先清掉引用。
         self.hide_countdown()
+        # 直接拖离编辑界面也应把当前显示日期的未落盘修改写回
+        if (
+            self.content_kind == "center_editor"
+            and self.editor_dirty
+            and self.changing_class
+        ):
+            self.save_change(
+                self.date_view.strftime("%Y-%m-%d"),
+                list(self.changing_class),
+            )
+            self.editor_dirty = False
         # 拖动期间跨区/换样式需要立即重建内容，但 macOS 会把后续拖拽事件
         # 送回发起按下的那个控件。因此把它移到窗口可视区外保留（不销毁），
         # 其余旧控件照常销毁；release 后再随正常重建一起清掉。
@@ -980,6 +992,14 @@ class calendar:
     def build_editor_widgets(self):
         fpx = self.font_px("center")
         gap = max(4, fpx * 0.25)
+        # 每次进入编辑界面都从“今天”开始：日期、可编辑副本与显示一致，
+        # 避免沿用上一次退出时选中的日期造成“显示今天却改旧日期课表”。
+        try:
+            self.date_view = datetime.datetime.strptime(self.date_now, "%Y-%m-%d")
+        except Exception:
+            self.date_view = self.now_time()
+        self.changing_class = list(self.today_class)
+        self.editor_dirty = False
         self.ml = Label(self.mainland)
         self.todate = Label(self.mainland, text=self.date_now)
         self.left_shift = Button(self.mainland, command=lambda: self.turn_date(-1))
@@ -1000,7 +1020,6 @@ class calendar:
             lab.bind("<ButtonRelease-1>", lambda e, m=lab, n=text: self.editor_release(e, m, n))
         # 编辑器课表标签（横向）
         self.labels = []
-        self.date_label_text = self.date_now
         for text in self.today_class:
             lab = self._mk_label(text, fpx, False)
             self.labels.append(lab)
@@ -1081,6 +1100,15 @@ class calendar:
         self.editor_geom = [width, sy]
         return [width, sy]
 
+    def _set_editor_label_text(self, lab, text):
+        """按文本实际长度重新计算该课节标签的字号/换行宽度。"""
+        fpx = self.font_px("center")
+        lab.config(
+            text=text,
+            font=self.label_font(text, fpx, False),
+            wraplength=fpx * 1.5,
+        )
+
     def turn_date(self, t=0):
         self.date_view += datetime.timedelta(days=t)
         ds = self.date_view.strftime("%Y-%m-%d")
@@ -1093,7 +1121,7 @@ class calendar:
         self.changing_class = tokens
         for i, lab in enumerate(self.labels):
             if i < len(tokens):
-                lab.config(text=tokens[i])
+                self._set_editor_label_text(lab, tokens[i])
         self.layout_dirty = True
 
     def editor_start(self, event, source, name):
@@ -1130,8 +1158,10 @@ class calendar:
                 best = i
         if best != -1 and best_dist < max(10000, self.font_px("center") ** 2 * 8):
             self.changing_class[best] = name
-            self.labels[best].config(text=name)
+            self._set_editor_label_text(self.labels[best], name)
+            self.editor_dirty = True
             self.save_change(self.date_view.strftime("%Y-%m-%d"), list(self.changing_class))
+            self.editor_dirty = False
         self.ml.place_forget()
 
     def save_change(self, date_s, tokens):
