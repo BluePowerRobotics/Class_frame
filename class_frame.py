@@ -10,6 +10,7 @@ from tkinter import Tk, Toplevel, Label, Button, Canvas
 
 SCREEN_GAP = 10
 ISLAND_GAP = 30
+EDGE_TRIGGER_PX = 5  # 拖拽时屏幕最外侧多少像素内视为“贴边”
 DOCKS = ("left", "upper", "right", "center")
 WEEK_NAMES = ["一", "二", "三", "四", "五", "六", "日"]
 SPECIAL_TEXT = {"周"} | set(WEEK_NAMES) | {"|"}
@@ -1499,15 +1500,20 @@ class calendar:
                 self.drag_moved,
                 (mx - self.press_point[0]) ** 2 + (my - self.press_point[1]) ** 2,
             )
-        zone = self.zone_of(mx, my)
+        zone, forced_style = self.zone_of_drag(mx, my)
+        desired_style = (
+            forced_style
+            if forced_style is not None
+            else bool(self.drag_defaults.get(zone, False))
+        )
         if zone != self.drag_zone:
-            # 跨区：区域基准写入“起始点”，并按该区默认样式切换
+            # 跨区：区域基准写入“起始点”，并按该区默认/贴边强制样式切换
             self.drag_zone = zone
             self.nowgroup = zone
-            self.set_style(bool(self.drag_defaults.get(zone, False)))
+            self.set_style(desired_style)
             self.style_applied = True
             try:
-                size = self.preview_size(zone, self.second_style)
+                size = self.preview_size(zone, desired_style)
             except Exception:
                 size = self.isl_frame.island_size(self.mainland)
             base = self.base_center(zone, size[0], size[1])
@@ -1515,11 +1521,30 @@ class calendar:
             self.layout_dirty = True
         if abs(mx - self.press_point[0]) > 3 or abs(my - self.press_point[1]) > 3:
             self.drag_click = False
-        if not self.drag_click and not self.style_applied:
-            self.set_style(bool(self.drag_defaults.get(self.drag_zone, False)))
+        if not self.drag_click:
+            # 同一 dock 内从贴边带移出/移入时也要切换样式：
+            # 贴边带 -> secondStyle=true；否则用该位置“拖入时默认样式”
+            if desired_style != self.second_style:
+                self.set_style(desired_style)
+                self.layout_dirty = True
             self.style_applied = True
-            self.layout_dirty = True
         self.recompute_drag_goal(mx, my)
+
+    def zone_of_drag(self, mx, my):
+        """拖拽时的定位规则，返回 (dock, 强制样式或None)。
+
+        旧版用 y<5 判定上方“只显示进度条”。这里扩展为：
+        指针位于屏幕上/左/右最外侧 EDGE_TRIGGER_PX 像素时，强制
+        对应方向的 secondStyle；离开贴边带但仍在同一 dock 区域时
+        使用该位置“拖入时默认样式”。
+        """
+        if my < EDGE_TRIGGER_PX:
+            return "upper", True
+        if mx < EDGE_TRIGGER_PX:
+            return "left", True
+        if mx > self.isl_frame.screen_width - EDGE_TRIGGER_PX:
+            return "right", True
+        return self.zone_of(mx, my), None
 
     def base_center(self, dock, w, h):
         flush = self.second_style and dock in ("left", "upper", "right")
