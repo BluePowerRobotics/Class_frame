@@ -1,0 +1,56 @@
+apply plugin: 'com.android.application'
+
+// 签名材料放在不入库的 keystore.properties 里；没有该文件时用系统默认（debug 用 debug 证书、release 不签名）
+def keystorePropsFile = rootProject.file('keystore.properties')
+def keystoreProps = new Properties()
+def hasSigningConfig = keystorePropsFile.exists()
+if (hasSigningConfig) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+
+android {
+    namespace 'org.bluepowerrobotics.classframe'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'org.bluepowerrobotics.classframe'
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName '0.1.0'
+        resConfigs 'zh'
+    }
+
+    // debug 与 release 使用同一把钥匙，保证两种构建可以互相覆盖安装
+    signingConfigs {
+        classframe {
+            if (hasSigningConfig) {
+                storeFile rootProject.file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            if (hasSigningConfig) signingConfig signingConfigs.classframe
+        }
+        release {
+            minifyEnabled false
+            shrinkResources false
+            if (hasSigningConfig) signingConfig signingConfigs.classframe
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}

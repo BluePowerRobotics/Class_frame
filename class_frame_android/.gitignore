@@ -1,0 +1,9 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+*.hprof
+# 签名材料不入库：keystore.properties 记录 storeFile/口令，jks 本身也本地保存
+keystore/
+keystore.properties

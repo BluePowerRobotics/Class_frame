@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">灵动课表</string>
+    <string name="channel_name">悬浮课表</string>
+    <string name="channel_desc">保持课表悬浮层运行</string>
+    <string name="notif_title">灵动课表运行中</string>
+    <string name="notif_text">悬浮层已启用</string>
+    <string name="notif_text_hidden">悬浮层已关闭</string>
+</resources>
