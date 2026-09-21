@@ -56,6 +56,12 @@ public class OverlayService extends Service {
     private boolean screenOn = true;
     private int tickCount;
     private Boolean lastVisible;
+    /**
+     * 悬浮权限的授予有时不会立刻对已运行的进程可见（设置页返回、ContentProvider 传播有延迟），
+     * 也可能出现"权限给了但服务早就放弃过"。这里记住最近一次失败，之后自愈重试。
+     */
+    private long lastShowAttemptAt;
+    private static final long SHOW_RETRY_INTERVAL_MS = 5000;
 
     private final Runnable wakeRunnable = new Runnable() {
         @Override
@@ -75,10 +81,27 @@ public class OverlayService extends Service {
             tickCount++;
             if (tickCount % SCHEDULE_RECHECK_TICKS == 0) {
                 applySchedule();
+            } else {
+                ensureOverlayAlive();
             }
             scheduleTicker();
         }
     };
+
+    /**
+     * 只要"开关开着 + 权限给了 + 当前应当显示 + 窗口其实没挂上"，就重试挂载。
+     * 这样权限晚一点生效、或某次 addView 失败，都不会留下"永远不出现"的状态。
+     */
+    private void ensureOverlayAlive() {
+        if (!Prefs.overlayEnabled(this)) return;
+        OverlayController controller = OverlayController.get(this);
+        if (!controller.shouldBeVisible() || controller.isShown()) return;
+        long now = System.currentTimeMillis();
+        if (now - lastShowAttemptAt < SHOW_RETRY_INTERVAL_MS) return;
+        lastShowAttemptAt = now;
+        Logs.i(TAG, "自愈重试: 应当显示但窗口未挂载，重新 show()");
+        applySchedule();
+    }
 
     /** 帧循环只在动画未收敛或处于交互期时运行。 */
     private final Choreographer.FrameCallback frameCallback = new Choreographer.FrameCallback() {

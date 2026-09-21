@@ -392,10 +392,12 @@ public class SystemPage implements MainActivity.Page {
     // -------------------------------------------------------- 权限
 
     private void openOverlaySettings() {
+        MainActivity.OverlayPermissionRequest.pending = true;
         try {
             activity.startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                     Uri.parse("package:" + activity.getPackageName())));
         } catch (Exception e) {
+            MainActivity.OverlayPermissionRequest.pending = false;
             toast("无法打开悬浮权限设置");
         }
     }

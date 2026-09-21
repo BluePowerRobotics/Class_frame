@@ -123,6 +123,11 @@ public final class OverlayController implements OverlayView.Listener {
         return shown && mainView != null && mainView.isAttachedToWindow();
     }
 
+    /** 当前时刻按课表本应显示（状态机说了算），与"窗口是否真的挂上去"无关。 */
+    public boolean shouldBeVisible() {
+        return state != null && !state.hidden;
+    }
+
     public MovementController movement() {
         return movement;
     }

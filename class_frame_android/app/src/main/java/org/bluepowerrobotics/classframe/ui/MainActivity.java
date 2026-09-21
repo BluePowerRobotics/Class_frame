@@ -31,6 +31,18 @@ public class MainActivity extends Activity {
         void onShow();
     }
 
+    /**
+     * 用户去过"显示在其他应用上方"设置页后置位。
+     * 系统把这个权限同步给 app 可能有一小段延迟，所以返回后要连续复查几次，
+     * 而不是"onResume 查一次算数"，否则会出现"权限明明给了却不生效，重启才好"的错觉。
+     */
+    public static final class OverlayPermissionRequest {
+        public static boolean pending;
+
+        private OverlayPermissionRequest() {
+        }
+    }
+
     private static final int BAR_HEIGHT_DP = 58;
 
     private final List<Page> pages = new ArrayList<>();
@@ -207,23 +219,20 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        boolean canDraw = android.provider.Settings.canDrawOverlays(this);
+        boolean enabled = org.bluepowerrobotics.classframe.data.Prefs.overlayEnabled(this);
         org.bluepowerrobotics.classframe.data.Logs.i("Ui", "MainActivity.onResume, overlayEnabled="
-                + org.bluepowerrobotics.classframe.data.Prefs.overlayEnabled(this)
-                + " canDrawOverlays=" + android.provider.Settings.canDrawOverlays(this));
+                + enabled + " canDrawOverlays=" + canDraw
+                + (OverlayPermissionRequest.pending ? " (刚从权限设置页返回)" : ""));
         // 打开应用时确保悬浮层服务在运行（之前 M1 有这段，M4 重写界面时漏了；
         // 现在之所以"打开 system 页才出现悬浮层"，是因为那页开关的 setChecked 顺带启动了服务）
-        if (org.bluepowerrobotics.classframe.data.Prefs.overlayEnabled(this)
-                && android.provider.Settings.canDrawOverlays(this)) {
-            try {
-                org.bluepowerrobotics.classframe.overlay.OverlayService.start(this);
-            } catch (Throwable error) {
-                org.bluepowerrobotics.classframe.data.Logs.e("Ui", "OverlayService.start failed", error);
-            }
-        } else {
-            org.bluepowerrobotics.classframe.data.Logs.w("Ui",
-                    "overlay not started: enabled="
-                            + org.bluepowerrobotics.classframe.data.Prefs.overlayEnabled(this)
-                            + " canDrawOverlays=" + android.provider.Settings.canDrawOverlays(this));
+        startOverlayIfAllowed(enabled, canDraw);
+        if (OverlayPermissionRequest.pending) {
+            OverlayPermissionRequest.pending = false;
+            // 权限可能还没同步过来：稍等再复查两次
+            scheduleOverlayRecheck(300);
+            scheduleOverlayRecheck(900);
+            scheduleOverlayRecheck(1800);
         }
         if (currentIndex >= 0) {
             try {
@@ -232,6 +241,40 @@ public class MainActivity extends Activity {
                 org.bluepowerrobotics.classframe.data.Logs.e("Ui", "onResume onShow failed", error);
             }
         }
+    }
+
+    private void startOverlayIfAllowed(boolean enabled, boolean canDraw) {
+        if (!enabled) {
+            org.bluepowerrobotics.classframe.data.Logs.w("Ui", "overlay not started: 开关已关闭");
+            return;
+        }
+        if (!canDraw) {
+            org.bluepowerrobotics.classframe.data.Logs.w("Ui",
+                    "overlay not started: 未授予「显示在其他应用上方」");
+            return;
+        }
+        try {
+            org.bluepowerrobotics.classframe.overlay.OverlayService.start(this);
+        } catch (Throwable error) {
+            org.bluepowerrobotics.classframe.data.Logs.e("Ui", "OverlayService.start failed", error);
+        }
+    }
+
+    /** 权限同步有延迟时，隔一小会儿再确认一次，尽量少让用户去重启设备。 */
+    private void scheduleOverlayRecheck(long delayMs) {
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                boolean canDraw = android.provider.Settings.canDrawOverlays(MainActivity.this);
+                boolean enabled = org.bluepowerrobotics.classframe.data.Prefs.overlayEnabled(
+                        MainActivity.this);
+                boolean shown = org.bluepowerrobotics.classframe.overlay.OverlayController
+                        .get(MainActivity.this).isShown();
+                org.bluepowerrobotics.classframe.data.Logs.i("Ui",
+                        "复查悬浮层: canDraw=" + canDraw + " enabled=" + enabled + " shown=" + shown);
+                if (enabled && !shown) startOverlayIfAllowed(enabled, canDraw);
+            }
+        }, delayMs);
     }
 
     @Override
