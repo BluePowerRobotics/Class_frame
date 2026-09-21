@@ -4,37 +4,42 @@
 
 ## 日志写在哪里
 
-| 位置 | 路径 | 说明 |
+| 系统版本 | 位置 | 取用方式 |
 | --- | --- | --- |
+| Android 10+ | `/存储/下载/ClassFrame/class_frame.log` | 文件管理器 / U 盘 / MTP 直接可见，**不需要任何权限** |
+| Android 9- | `/sdcard/Android/data/org.bluepowerrobotics.classframe/files/log/class_frame.log` | 文件管理器可见（需同意首次弹出的存储权限） |
 | logcat | tag `ClassFrame` | 有 adb 时最快 |
-| app 私有目录 | `/data/data/org.bluepowerrobotics.classframe/files/log/class_frame.log` | 本次运行 |
-| 上一次运行 | 同目录 `class_frame.prev.log` | 启动时把上一份改名留存，避免"重启一次现场就没了" |
+| 私有兜底 | `/data/data/org.bluepowerrobotics.classframe/files/log/`（含 `class_frame.prev.log`） | app 内部始终再写一份 |
 
-单文件超过 512 KB 时滚动为 `.old`。
+为什么这样分：Android 10 起 app 可以往公共「下载」目录写自己的文件而**不需要存储权限**，
+而且这个位置对任何文件管理器、U 盘和 MTP 都公开；Android 9 以下只有外部私有目录是公开的，
+但它需要 `WRITE_EXTERNAL_STORAGE`，所以首次启动会申请一次（拒绝也不影响使用，只是日志退回私有目录）。
 
-## 三种取日志的方式
+每次启动会写一行 `===== app 启动 ... 日志=...` 作为分隔，一个文件里能看到多次运行；
+超过 512 KB 时另存为 `class_frame-<日期时间>.log`，旧文件保留供取走。
 
-1. **app 内直接看**：system 页 →「查看运行日志」。文本可选中复制，也可以直接截图。
-2. **导出成文件**：system 页 →「导出运行日志」→ 系统文件窗口选 U 盘 → 得到一个 txt。
-3. **文件管理器**：Android 11+ 可能看不到 `Android/data`，那就走前两种。
+## 取日志的方式
 
-导出内容是"上次运行日志 + 本次运行日志 + 设备环境（sdk / release / brand / model）"。
+1. **直接拿文件（推荐，且不依赖 app 能否打开）**：插上 U 盘或用文件管理器，去上表里的位置复制
+   `class_frame.log`。
+2. **app 内直接看**：system 页 →「查看运行日志」。文本可选中复制，也可以直接截图。
+3. **导出成文件**：system 页 →「导出运行日志」→ 系统文件窗口选 U 盘。
+
+导出内容是"公共目录日志 + 上次运行日志 + 本次运行日志 + 设备环境（sdk / release / brand / model）"。
 
 ## 崩溃时的行为
 
-- 未捕获异常会整栈写入日志文件，并在通知栏留一条「灵动课表刚刚出错」的通知；点通知回到 app，
-  再从 system 页导出即可。
+- 未捕获异常会整栈写入日志文件（并强制刷盘），同时通知栏留一条通知，通知里直接写了日志路径。
 - 后台线程崩溃同样会被记录（`Thread.setDefaultUncaughtExceptionHandler` 对全部线程生效）。
 - 如果**进程直接被系统杀掉**（例如前台服务被拒、被 ROM 冻结），日志会停在最后一条记录上，
   这本身就说明死在哪一步。
 
 ## 关键排查点
 
-打开 app 后日志里应当能依次看到：
+打开 app 后日志里应当能依次看到（`env` 行能直接确认这台机器到底是 Android 几点几）：
 
 ```
-app onCreate
-env sdk=.. release=.. brand=.. model=..
+===== app 启动 env sdk=.. release=.. brand=.. model=.. abi=.. 日志=...
 Ui MainActivity.onCreate env ...
 Ui MainActivity.onResume, overlayEnabled=true canDrawOverlays=true
 service onCreate

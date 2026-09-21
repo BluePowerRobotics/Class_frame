@@ -359,6 +359,7 @@ public class SystemPage implements MainActivity.Page {
 
     private String buildSelfCheck(boolean canDraw, boolean ignoring) {
         StringBuilder sb = new StringBuilder();
+        sb.append("运行日志: ").append(Logs.location(activity)).append('\n');
         sb.append("数据目录: ").append(activity.getFilesDir().getAbsolutePath()).append('\n');
         sb.append("悬浮层: ").append(OverlayController.get(activity).isShown() ? "显示中" : "未显示").append('\n');
         sb.append("悬浮权限: ").append(canDraw ? "已授予" : "未授予").append('\n');

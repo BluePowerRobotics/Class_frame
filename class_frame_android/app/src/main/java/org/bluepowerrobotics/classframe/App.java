@@ -12,7 +12,9 @@ public class App extends Application {
         super.onCreate();
         sAppContext = getApplicationContext();
         org.bluepowerrobotics.classframe.data.Logs.init(this);
-        org.bluepowerrobotics.classframe.data.Logs.i("ClassFrame", "app onCreate");
+        org.bluepowerrobotics.classframe.data.Logs.i("ClassFrame",
+                "===== app 启动 " + org.bluepowerrobotics.classframe.data.Logs.environment()
+                        + " 日志=" + org.bluepowerrobotics.classframe.data.Logs.location(this));
     }
 
     public static Context ctx() {
