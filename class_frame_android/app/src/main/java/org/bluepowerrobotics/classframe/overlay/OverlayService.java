@@ -23,6 +23,7 @@ import android.view.Choreographer;
 import org.bluepowerrobotics.classframe.R;
 import org.bluepowerrobotics.classframe.data.Config;
 import org.bluepowerrobotics.classframe.data.ConfigRepository;
+import org.bluepowerrobotics.classframe.data.Logs;
 import org.bluepowerrobotics.classframe.data.Prefs;
 import org.bluepowerrobotics.classframe.ui.MainActivity;
 
@@ -150,6 +151,7 @@ public class OverlayService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        Logs.i(TAG, "service onCreate");
         createChannel();
         registerReceiver(screenReceiver, new IntentFilter() {{
             addAction(Intent.ACTION_SCREEN_ON);
@@ -163,7 +165,15 @@ public class OverlayService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        startForegroundCompat();
+        Logs.i(TAG, "service onStartCommand action="
+                + (intent == null ? "(null)" : intent.getAction()) + " startId=" + startId);
+        try {
+            startForegroundCompat();
+            Logs.i(TAG, "startForeground ok");
+        } catch (Exception e) {
+            // 前台服务起不来时（例如 FGS 类型不被该系统接受）必须留证据，否则表现为"什么都没发生"
+            Logs.e(TAG, "startForeground failed", e);
+        }
 
         String action = intent == null ? ACTION_START : intent.getAction();
         OverlayController controller = OverlayController.get(this);
@@ -195,6 +205,7 @@ public class OverlayService extends Service {
         }
 
         if (!Prefs.overlayEnabled(this)) {
+            Logs.w(TAG, "overlayEnabled=false，悬浮层不启动");
             stopTicker();
             cancelWake();
             controller.hide();
@@ -246,28 +257,36 @@ public class OverlayService extends Service {
         try {
             config = ConfigRepository.load(this);
         } catch (Exception e) {
-            Log.w(TAG, "schedule: load config failed: " + e);
+            Logs.e(TAG, "schedule: load config failed", e);
             return;
         }
 
         Calendar appNow = Calendar.getInstance();
         appNow.add(Calendar.SECOND, config.timeOffsetSeconds);
-        ScheduleEngine.Plan plan = ScheduleEngine.compute(config, appNow, config.timeOffsetSeconds);
+        ScheduleEngine.Plan plan;
+        try {
+            plan = ScheduleEngine.compute(config, appNow, config.timeOffsetSeconds);
+        } catch (Exception e) {
+            Logs.e(TAG, "schedule: compute failed", e);
+            return;
+        }
 
         OverlayController controller = OverlayController.get(this);
         if (plan.hidden) {
+            Logs.i(TAG, "schedule: hidden -> hide");
             stopTicker();
             controller.hide();
             lastVisible = false;
             updateNotification(false);
         } else {
+            Logs.i(TAG, "schedule: visible -> show");
             boolean ok = controller.show();
             lastVisible = ok;
             if (ok && screenOn) scheduleTicker();
             updateNotification(ok);
         }
         scheduleWake(plan);
-        Log.i(TAG, "schedule: " + plan.describe() + " screenOn=" + screenOn);
+        Logs.i(TAG, "schedule: " + plan.describe() + " screenOn=" + screenOn);
     }
 
     private void scheduleWake(ScheduleEngine.Plan plan) {
@@ -300,7 +319,7 @@ public class OverlayService extends Service {
                 manager.setExact(AlarmManager.RTC_WAKEUP, plan.triggerAtMillis, pending);
             }
         } catch (Exception e) {
-            Log.w(TAG, "schedule: alarm failed: " + e);
+            Logs.w(TAG, "schedule: alarm failed: " + e);
         }
     }
 

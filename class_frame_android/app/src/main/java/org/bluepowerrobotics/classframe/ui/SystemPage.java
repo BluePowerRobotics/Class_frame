@@ -23,6 +23,7 @@ import org.bluepowerrobotics.classframe.data.ClassTemplateRepository;
 import org.bluepowerrobotics.classframe.data.Config;
 import org.bluepowerrobotics.classframe.data.ConfigRepository;
 import org.bluepowerrobotics.classframe.data.FontRepository;
+import org.bluepowerrobotics.classframe.data.Logs;
 import org.bluepowerrobotics.classframe.data.Prefs;
 import org.bluepowerrobotics.classframe.overlay.OverlayController;
 import org.bluepowerrobotics.classframe.overlay.OverlayService;
@@ -41,6 +42,7 @@ public class SystemPage implements MainActivity.Page {
     private static final int REQ_IMPORT_CONFIG = 101;
     private static final int REQ_EXPORT_CONFIG = 102;
     private static final int REQ_IMPORT_FONT = 103;
+    private static final int REQ_EXPORT_LOG = 104;
 
     private final MainActivity activity;
     private ScrollView rootView;
@@ -60,6 +62,8 @@ public class SystemPage implements MainActivity.Page {
 
     public SystemPage(MainActivity activity) {
         this.activity = activity;
+        // 系统字体枚举放到后台，打开 system 页时不再阻塞 UI
+        FontRepository.preloadSystemFonts();
     }
 
     @Override
@@ -304,6 +308,18 @@ public class SystemPage implements MainActivity.Page {
                 exportConfig();
             }
         }));
+        root.addView(Ui.button(activity, "导出运行日志", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                exportLog();
+            }
+        }));
+        root.addView(Ui.button(activity, "查看运行日志", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showLog();
+            }
+        }));
 
         root.addView(Ui.title(activity, "自检"));
         selfCheck = new TextView(activity);
@@ -519,6 +535,56 @@ public class SystemPage implements MainActivity.Page {
         }
     }
 
+    /** 导出运行日志：课堂电脑不便接 adb 时，用文件管理器把它存到 U 盘带走。 */
+    private void exportLog() {
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("text/plain");
+        intent.putExtra(Intent.EXTRA_TITLE, "class_frame.log");
+        try {
+            activity.startActivityForResult(intent, REQ_EXPORT_LOG);
+        } catch (Exception e) {
+            toast("无法打开文件选择器");
+        }
+    }
+
+    /**
+     * 直接在 app 里看日志：教室机器上不一定有能浏览 Android/data 的文件管理器，
+     * 也没法接 adb，所以内置一个只读查看器（可长按选中复制，或截图）。
+     */
+    private void showLog() {
+        String text;
+        try {
+            text = Logs.readAll(activity);
+        } catch (Throwable error) {
+            text = "日志读取失败: " + error;
+        }
+        final TextView view = new TextView(activity);
+        view.setTextSize(10);
+        view.setTextColor(Color.BLACK);
+        view.setTextIsSelectable(true);
+        view.setPadding(Ui.dp(activity, 10), Ui.dp(activity, 10),
+                Ui.dp(activity, 10), Ui.dp(activity, 10));
+        view.setText(text.isEmpty() ? "(暂无日志)" : text);
+        final ScrollView scroll = new ScrollView(activity);
+        scroll.addView(view);
+        final LinearLayout holder = new LinearLayout(activity);
+        holder.setOrientation(LinearLayout.VERTICAL);
+        holder.addView(scroll, new LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(activity, 420)));
+        holder.addView(Ui.button(activity, "导出为文件", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                exportLog();
+            }
+        }));
+        new AlertDialog.Builder(activity)
+                .setTitle("运行日志")
+                .setView(holder)
+                .setPositiveButton("关闭", null)
+                .show();
+    }
+
     /** 由 MainActivity 转发；返回 true 表示本页已处理。 */
     public boolean onActivityResult(int requestCode, int resultCode, Intent data) {
         if (resultCode != Activity.RESULT_OK || data == null) return false;
@@ -545,6 +611,15 @@ public class SystemPage implements MainActivity.Page {
                 toast("已导出 config.json");
             } catch (Exception e) {
                 toast("导出失败：" + e.getMessage());
+            }
+            return true;
+        }
+        if (requestCode == REQ_EXPORT_LOG) {
+            try {
+                writeText(uri, Logs.readAll(activity));
+                toast("日志已导出");
+            } catch (Exception e) {
+                toast("导出日志失败：" + e.getMessage());
             }
             return true;
         }

@@ -30,6 +30,23 @@ public final class FontRepository {
             "serif", "monospace", "casual", "cursive", "sans-serif-smallcaps",
     };
 
+    /** 系统字体文件枚举较慢（部分 ROM 上会阻塞数秒），改为后台预加载并缓存，避免在 UI 线程调用。 */
+    private static volatile List<File> sSystemFontFiles;
+    private static volatile boolean sLoading;
+
+    public static void preloadSystemFonts() {
+        if (sSystemFontFiles != null || sLoading) return;
+        sLoading = true;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                List<File> files = enumerateSystemFontFiles();
+                sSystemFontFiles = files;
+                sLoading = false;
+            }
+        }, "font-preload").start();
+    }
+
     private FontRepository() {
     }
 
@@ -72,6 +89,12 @@ public final class FontRepository {
 
     /** 系统字体文件：API 29+ 用 SystemFonts.getAvailableFonts()，否则遍历 /system/fonts。 */
     public static List<File> systemFontFiles() {
+        if (sSystemFontFiles != null) return sSystemFontFiles;
+        preloadSystemFonts();
+        return new ArrayList<>();
+    }
+
+    private static List<File> enumerateSystemFontFiles() {
         List<File> files = new ArrayList<>();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {

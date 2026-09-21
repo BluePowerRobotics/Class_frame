@@ -11,6 +11,8 @@ public class App extends Application {
     public void onCreate() {
         super.onCreate();
         sAppContext = getApplicationContext();
+        org.bluepowerrobotics.classframe.data.Logs.init(this);
+        org.bluepowerrobotics.classframe.data.Logs.i("ClassFrame", "app onCreate");
     }
 
     public static Context ctx() {

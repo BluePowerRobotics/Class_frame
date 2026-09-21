@@ -13,6 +13,7 @@ import android.widget.Toast;
 import org.bluepowerrobotics.classframe.data.Config;
 import org.bluepowerrobotics.classframe.data.ConfigRepository;
 import org.bluepowerrobotics.classframe.data.DayChangeRepository;
+import org.bluepowerrobotics.classframe.data.Logs;
 import org.bluepowerrobotics.classframe.data.Prefs;
 import org.json.JSONArray;
 
@@ -146,24 +147,31 @@ public final class OverlayController implements OverlayView.Listener {
 
     public boolean show() {
         if (!canDrawOverlay()) {
+            Logs.w(TAG, "overlay show skipped: 未授予「显示在其他应用上方」");
             return false;
         }
         try {
             if (mainView == null) {
+                Logs.i(TAG, "overlay show: 开始创建绘制窗口");
                 mainView = new OverlayView(context);
                 mainView.setListener(this);
                 WindowManager.LayoutParams params = buildParams();
                 windowManager.addView(mainView, params);
+                Logs.i(TAG, "overlay show: 绘制窗口已添加 type=" + params.type
+                        + " sdk=" + Build.VERSION.SDK_INT);
                 mainView.setWindowParams(params);
                 touchParams = buildTouchParams();
                 touchView = new TouchProxyView(context, mainView);
                 windowManager.addView(touchView, touchParams);
+                Logs.i(TAG, "overlay show: 触摸代理窗口已添加 type=" + touchParams.type);
             }
             shown = true;
             dirty = true;
             refresh();
+            Logs.i(TAG, "overlay show ok");
             return true;
         } catch (Exception e) {
+            Logs.e(TAG, "overlay show failed (无法添加悬浮窗)", e);
             shown = false;
             return false;
         }

@@ -11,6 +11,7 @@ import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 import org.bluepowerrobotics.classframe.R;
@@ -44,12 +45,29 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        org.bluepowerrobotics.classframe.data.Logs.i("Ui",
+                "MainActivity.onCreate " + org.bluepowerrobotics.classframe.data.Logs.environment());
         colorSelected = 0xFF1565C0;
         colorNormal = 0xFF888888;
 
-        pages.add(new EditPage(this));
-        pages.add(new SetClassPage(this));
-        pages.add(new SystemPage(this));
+        try {
+            pages.add(new EditPage(this));
+        } catch (Throwable error) {
+            org.bluepowerrobotics.classframe.data.Logs.e("Ui", "EditPage ctor failed", error);
+            pages.add(new BrokenPage(describe(error)));
+        }
+        try {
+            pages.add(new SetClassPage(this));
+        } catch (Throwable error) {
+            org.bluepowerrobotics.classframe.data.Logs.e("Ui", "SetClassPage ctor failed", error);
+            pages.add(new BrokenPage(describe(error)));
+        }
+        try {
+            pages.add(new SystemPage(this));
+        } catch (Throwable error) {
+            org.bluepowerrobotics.classframe.data.Logs.e("Ui", "SystemPage ctor failed", error);
+            pages.add(new BrokenPage(describe(error)));
+        }
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -112,13 +130,20 @@ public class MainActivity extends Activity {
 
     /** 切换页面；页面视图按需创建并缓存。 */
     public void select(int index) {
+        org.bluepowerrobotics.classframe.data.Logs.i("Ui", "select tab " + index);
         if (index == currentIndex) {
             pages.get(index).onShow();
             return;
         }
         currentIndex = index;
         container.removeAllViews();
-        View view = pages.get(index).getView();
+        View view;
+        try {
+            view = pages.get(index).getView();
+        } catch (Throwable error) {
+            org.bluepowerrobotics.classframe.data.Logs.e("Ui", "page " + index + " build failed", error);
+            view = brokenView(describe(error));
+        }
         container.addView(view, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         for (int i = 0; i < tabIcons.size(); i++) {
@@ -126,7 +151,48 @@ public class MainActivity extends Activity {
             tabIcons.get(i).setColorFilter(on ? colorSelected : colorNormal);
             tabLabels.get(i).setTextColor(on ? colorSelected : colorNormal);
         }
-        pages.get(index).onShow();
+        try {
+            pages.get(index).onShow();
+        } catch (Throwable error) {
+            org.bluepowerrobotics.classframe.data.Logs.e("Ui", "page " + index + " onShow failed", error);
+        }
+    }
+
+    private static String describe(Throwable error) {
+        java.io.StringWriter writer = new java.io.StringWriter();
+        error.printStackTrace(new java.io.PrintWriter(writer));
+        return writer.toString();
+    }
+
+    /** 出错页面：把异常直接画在屏幕上，方便用户截图反馈，比闪退/黑屏可诊断得多。 */
+    private View brokenView(String detail) {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(0xFFFFFFFF);
+        TextView text = new TextView(this);
+        text.setTextSize(12);
+        text.setTextColor(0xFFB00020);
+        text.setPadding(dp(12), dp(12), dp(12), dp(12));
+        text.setTextIsSelectable(true);
+        text.setText("此页面载入失败（已写入运行日志，可到其它页导出）\n\n" + detail);
+        scroll.addView(text);
+        return scroll;
+    }
+
+    private final class BrokenPage implements Page {
+        private final String detail;
+
+        BrokenPage(String detail) {
+            this.detail = detail;
+        }
+
+        @Override
+        public View getView() {
+            return brokenView(detail);
+        }
+
+        @Override
+        public void onShow() {
+        }
     }
 
     /** 当前是否停留在 system 页（部分状态刷新用）。 */
@@ -137,18 +203,38 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        org.bluepowerrobotics.classframe.data.Logs.i("Ui", "MainActivity.onResume, overlayEnabled="
+                + org.bluepowerrobotics.classframe.data.Prefs.overlayEnabled(this)
+                + " canDrawOverlays=" + android.provider.Settings.canDrawOverlays(this));
         // 打开应用时确保悬浮层服务在运行（之前 M1 有这段，M4 重写界面时漏了；
         // 现在之所以"打开 system 页才出现悬浮层"，是因为那页开关的 setChecked 顺带启动了服务）
         if (org.bluepowerrobotics.classframe.data.Prefs.overlayEnabled(this)
                 && android.provider.Settings.canDrawOverlays(this)) {
-            org.bluepowerrobotics.classframe.overlay.OverlayService.start(this);
+            try {
+                org.bluepowerrobotics.classframe.overlay.OverlayService.start(this);
+            } catch (Throwable error) {
+                org.bluepowerrobotics.classframe.data.Logs.e("Ui", "OverlayService.start failed", error);
+            }
+        } else {
+            org.bluepowerrobotics.classframe.data.Logs.w("Ui",
+                    "overlay not started: enabled="
+                            + org.bluepowerrobotics.classframe.data.Prefs.overlayEnabled(this)
+                            + " canDrawOverlays=" + android.provider.Settings.canDrawOverlays(this));
         }
-        if (currentIndex >= 0) pages.get(currentIndex).onShow();
+        if (currentIndex >= 0) {
+            try {
+                pages.get(currentIndex).onShow();
+            } catch (Throwable error) {
+                org.bluepowerrobotics.classframe.data.Logs.e("Ui", "onResume onShow failed", error);
+            }
+        }
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        org.bluepowerrobotics.classframe.data.Logs.i("Ui",
+                "onActivityResult req=" + requestCode + " result=" + resultCode);
         for (Page page : pages) {
             if (page instanceof SystemPage
                     && ((SystemPage) page).onActivityResult(requestCode, resultCode, data)) return;
