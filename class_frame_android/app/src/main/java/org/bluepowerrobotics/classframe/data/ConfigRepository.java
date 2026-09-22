@@ -67,6 +67,12 @@ public final class ConfigRepository {
         return Config.parse(new JSONObject(text));
     }
 
+    /** 原始 config.json（未迁移、未解释），用于只改单个字段后原样写回。 */
+    public static JSONObject loadRaw(Context context) throws Exception {
+        ensureInitialized(context);
+        return new JSONObject(readUtf8(configFile(context)));
+    }
+
     public static void save(Context context, JSONObject config) throws Exception {
         writeUtf8Atomic(configFile(context), config.toString(2));
     }

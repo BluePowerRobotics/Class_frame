@@ -14,6 +14,12 @@ public final class Prefs {
     public static final String KEY_MAX_FPS = "max_fps";
     public static final String KEY_INTERACT_HOLD_MS = "interact_hold_ms";
     public static final String KEY_LOGIC_FPS = "logic_fps";
+    public static final String KEY_TIMEZONE = "time_zone";
+    public static final String KEY_AUTO_TIME = "auto_time_update";
+    public static final String KEY_AUTO_TIME_MODE = "auto_time_mode";
+    public static final String KEY_NTP_HOST = "ntp_host";
+    public static final String KEY_HTTP_HOST = "http_time_host";
+    public static final String KEY_HTTP_PORT = "http_time_port";
 
     public static final boolean DEFAULT_BOOT_AUTOSTART = false;
     public static final boolean DEFAULT_OVERLAY_ENABLED = true;
@@ -22,6 +28,13 @@ public final class Prefs {
     public static final int DEFAULT_MAX_FPS = 60;
     public static final int DEFAULT_INTERACT_HOLD_MS = 500;
     public static final int DEFAULT_LOGIC_FPS = 60;
+    /** 默认北京时间。 */
+    public static final String DEFAULT_TIMEZONE = "Asia/Shanghai";
+    public static final boolean DEFAULT_AUTO_TIME = false;
+    public static final String DEFAULT_AUTO_TIME_MODE = "ntp";
+    public static final String DEFAULT_NTP_HOST = "ntp.aliyun.com";
+    public static final String DEFAULT_HTTP_HOST = "www.baidu.com";
+    public static final int DEFAULT_HTTP_PORT = 80;
 
     private Prefs() {
     }
@@ -95,5 +108,66 @@ public final class Prefs {
 
     public static void setLogicFps(Context context, int value) {
         sp(context).edit().putInt(KEY_LOGIC_FPS, Math.max(1, Math.min(60, value))).apply();
+    }
+
+    // ------------------------------------------------------------ 时间
+
+    public static String timeZoneId(Context context) {
+        String value = sp(context).getString(KEY_TIMEZONE, DEFAULT_TIMEZONE);
+        return value == null || value.isEmpty() ? DEFAULT_TIMEZONE : value;
+    }
+
+    public static void setTimeZoneId(Context context, String value) {
+        sp(context).edit().putString(KEY_TIMEZONE,
+                value == null || value.isEmpty() ? DEFAULT_TIMEZONE : value).apply();
+    }
+
+    public static boolean autoTime(Context context) {
+        return sp(context).getBoolean(KEY_AUTO_TIME, DEFAULT_AUTO_TIME);
+    }
+
+    public static void setAutoTime(Context context, boolean value) {
+        sp(context).edit().putBoolean(KEY_AUTO_TIME, value).apply();
+    }
+
+    /** "ntp" 或 "http"。 */
+    public static String autoTimeMode(Context context) {
+        String value = sp(context).getString(KEY_AUTO_TIME_MODE, DEFAULT_AUTO_TIME_MODE);
+        return "http".equals(value) ? "http" : "ntp";
+    }
+
+    public static void setAutoTimeMode(Context context, String value) {
+        sp(context).edit().putString(KEY_AUTO_TIME_MODE, "http".equals(value) ? "http" : "ntp")
+                .apply();
+    }
+
+    public static String ntpHost(Context context) {
+        String value = sp(context).getString(KEY_NTP_HOST, DEFAULT_NTP_HOST);
+        return value == null || value.isEmpty() ? DEFAULT_NTP_HOST : value;
+    }
+
+    public static void setNtpHost(Context context, String value) {
+        sp(context).edit().putString(KEY_NTP_HOST,
+                value == null || value.isEmpty() ? DEFAULT_NTP_HOST : value.trim()).apply();
+    }
+
+    public static String httpTimeHost(Context context) {
+        String value = sp(context).getString(KEY_HTTP_HOST, DEFAULT_HTTP_HOST);
+        return value == null || value.isEmpty() ? DEFAULT_HTTP_HOST : value;
+    }
+
+    public static void setHttpTimeHost(Context context, String value) {
+        sp(context).edit().putString(KEY_HTTP_HOST,
+                value == null || value.isEmpty() ? DEFAULT_HTTP_HOST : value.trim()).apply();
+    }
+
+    public static int httpTimePort(Context context) {
+        int value = sp(context).getInt(KEY_HTTP_PORT, DEFAULT_HTTP_PORT);
+        return value <= 0 || value > 65535 ? DEFAULT_HTTP_PORT : value;
+    }
+
+    public static void setHttpTimePort(Context context, int value) {
+        sp(context).edit().putInt(KEY_HTTP_PORT,
+                Math.max(1, Math.min(65535, value))).apply();
     }
 }

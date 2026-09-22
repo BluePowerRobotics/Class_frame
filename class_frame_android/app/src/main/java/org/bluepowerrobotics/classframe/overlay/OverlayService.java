@@ -175,6 +175,12 @@ public class OverlayService extends Service {
     public void onCreate() {
         super.onCreate();
         Logs.i(TAG, "service onCreate");
+        // 开机自启的机器可能一直没人打开界面，这里也尝试一次自动对时
+        try {
+            org.bluepowerrobotics.classframe.data.TimeSync.syncAutoQuietly(this);
+        } catch (Throwable error) {
+            Logs.e(TAG, "自动对时启动失败", error);
+        }
         createChannel();
         registerReceiver(screenReceiver, new IntentFilter() {{
             addAction(Intent.ACTION_SCREEN_ON);

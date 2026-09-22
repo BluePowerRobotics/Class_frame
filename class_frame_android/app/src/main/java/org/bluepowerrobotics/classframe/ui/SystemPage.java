@@ -25,6 +25,7 @@ import org.bluepowerrobotics.classframe.data.ConfigRepository;
 import org.bluepowerrobotics.classframe.data.FontRepository;
 import org.bluepowerrobotics.classframe.data.Logs;
 import org.bluepowerrobotics.classframe.data.Prefs;
+import org.bluepowerrobotics.classframe.data.TimeSync;
 import org.bluepowerrobotics.classframe.overlay.OverlayController;
 import org.bluepowerrobotics.classframe.overlay.OverlayService;
 
@@ -57,6 +58,7 @@ public class SystemPage implements MainActivity.Page {
     private TextView holdValue;
     private TextView logicValue;
     private TextView selfCheck;
+    private TextView timeValue;
     private Switch bootSwitch;
     private Switch overlaySwitch;
 
@@ -164,6 +166,17 @@ public class SystemPage implements MainActivity.Page {
             }
         }));
         root.addView(actions);
+
+        LinearLayout timeRow = Ui.row(activity);
+        timeValue = Ui.label(activity, "");
+        timeRow.addView(timeValue);
+        timeRow.addView(Ui.button(activity, "时间校准", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showTimeDialog();
+            }
+        }));
+        root.addView(timeRow, Ui.block(activity));
 
         root.addView(Ui.title(activity, "显示"));
 
@@ -354,6 +367,17 @@ public class SystemPage implements MainActivity.Page {
         fpsValue.setText("最高帧率（交互）：" + Prefs.maxFps(activity) + " fps");
         holdValue.setText("交互后保持高帧率：" + Prefs.interactHoldMs(activity) + " ms");
         logicValue.setText("逻辑帧率（动画期间）：" + Prefs.logicFps(activity) + " fps");
+        if (timeValue != null) {
+            int offset = TimeSync.currentOffsetSeconds(activity);
+            java.util.TimeZone zone = TimeSync.zone(activity);
+            timeValue.setText("时间偏移：" + offset + " 秒\n"
+                    + "本机：" + TimeSync.format(System.currentTimeMillis(), zone) + "\n"
+                    + "校准后：" + TimeSync.format(System.currentTimeMillis() + offset * 1000L, zone)
+                    + "\n时区：" + Prefs.timeZoneId(activity)
+                    + "　自动更新：" + (Prefs.autoTime(activity)
+                    ? ("开（" + ("http".equals(Prefs.autoTimeMode(activity)) ? "HTTP" : "NTP") + "）")
+                    : "关"));
+        }
         selfCheck.setText(buildSelfCheck(canDraw, ignoring));
     }
 
@@ -485,6 +509,374 @@ public class SystemPage implements MainActivity.Page {
                     }
                 })
                 .show();
+    }
+
+    // -------------------------------------------------------- 时间校准
+
+    /** 时间校准对话框：手动偏移 / 按正确时间自动解算 / 时区 / 自动更新（NTP 或 HTTP）。 */
+    private void showTimeDialog() {
+        final java.util.TimeZone zone = TimeSync.zone(activity);
+        final int offsetNow = TimeSync.currentOffsetSeconds(activity);
+
+        LinearLayout root = new LinearLayout(activity);
+        root.setOrientation(LinearLayout.VERTICAL);
+        int pad = Ui.dp(activity, 14);
+        root.setPadding(pad, pad, pad, pad);
+        root.setBackgroundColor(0xFFF7F7F7);
+
+        // ---- 现状 ----
+        final TextView current = Ui.label(activity, "");
+        current.setTextSize(13);
+        root.addView(current, Ui.block(activity));
+
+        // ---- 手动偏移 ----
+        root.addView(Ui.title(activity, "手动校准（秒）"));
+        final EditText offsetInput = new EditText(activity);
+        offsetInput.setInputType(InputType.TYPE_CLASS_NUMBER
+                | InputType.TYPE_NUMBER_FLAG_SIGNED);
+        offsetInput.setText(String.valueOf(offsetNow));
+        root.addView(offsetInput, Ui.block(activity));
+        TextView offsetHint = new TextView(activity);
+        offsetHint.setTextSize(11);
+        offsetHint.setTextColor(Color.DKGRAY);
+        offsetHint.setText("正数 = 设备慢了要往前拨，负数 = 设备快了要往回拨。支持几个月到几十年的差值。");
+        root.addView(offsetHint, Ui.block(activity));
+
+        // ---- 按正确时间解算 ----
+        root.addView(Ui.title(activity, "按当前时间自动解算"));
+        final EditText timeInput = new EditText(activity);
+        timeInput.setInputType(InputType.TYPE_CLASS_DATETIME);
+        root.addView(timeInput, Ui.block(activity));
+        LinearLayout timeButtons = Ui.row(activity);
+        timeButtons.addView(Ui.button(activity, "填入校准后时间", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                // 以"当前生效的偏移"为初始值，用户只改错的部分即可
+                long millis = System.currentTimeMillis() + offsetOf(offsetInput) * 1000L;
+                timeInput.setText(TimeSync.format(millis, zone));
+            }
+        }));
+        timeButtons.addView(Ui.button(activity, "填入本机时间", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                timeInput.setText(TimeSync.format(System.currentTimeMillis(), zone));
+            }
+        }));
+        root.addView(timeButtons, Ui.block(activity));
+        TextView timeHint = new TextView(activity);
+        timeHint.setTextSize(11);
+        timeHint.setTextColor(Color.DKGRAY);
+        timeHint.setText("格式 yyyy-MM-dd HH:mm:ss，也可只写 HH:mm:ss。填写此时真正是几点，自动算出偏移。");
+        root.addView(timeHint, Ui.block(activity));
+
+        final TextView calibrated = Ui.label(activity, "");
+        calibrated.setTextSize(13);
+        root.addView(calibrated, Ui.block(activity));
+
+        // ---- 时区 ----
+        root.addView(Ui.title(activity, "时区"));
+        final TextView zoneValue = Ui.chooser(activity);
+        zoneValue.setText(Prefs.timeZoneId(activity));
+        zoneValue.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                final List<String> zones = new java.util.ArrayList<>(
+                        java.util.Arrays.asList(TimeSync.commonZones()));
+                if (!zones.contains(Prefs.timeZoneId(activity))) {
+                    zones.add(Prefs.timeZoneId(activity));
+                }
+                new AlertDialog.Builder(activity)
+                        .setTitle("时区（默认北京时间）")
+                        .setItems(zones.toArray(new String[0]),
+                                new android.content.DialogInterface.OnClickListener() {
+                                    @Override
+                                    public void onClick(android.content.DialogInterface dialog,
+                                                        int which) {
+                                        Prefs.setTimeZoneId(activity, zones.get(which));
+                                        TimeSync.applyDefaultZone(activity);
+                                        zoneValue.setText(zones.get(which));
+                                        refreshTimes(current, calibrated, offsetInput, timeInput);
+                                        OverlayService.refresh(activity);
+                                        refresh();
+                                        toast("时区已设为 " + zones.get(which));
+                                    }
+                                })
+                        .setNeutralButton("手动输入", new android.content.DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(android.content.DialogInterface dialog, int which) {
+                                askZone(zoneValue, current, calibrated, offsetInput, timeInput);
+                            }
+                        })
+                        .show();
+            }
+        });
+        root.addView(zoneValue, Ui.block(activity));
+
+        // ---- 自动更新 ----
+        root.addView(Ui.title(activity, "自动更新时间"));
+        final Switch auto = new Switch(activity);
+        auto.setText("启动时自动更新（失败每小时重试）");
+        auto.setChecked(Prefs.autoTime(activity));
+        root.addView(auto);
+
+        final TextView modeValue = Ui.chooser(activity);
+        modeValue.setText("方式：" + modeLabel());
+        modeValue.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                final String[] labels = {"NTP（UDP 123）", "HTTP（读取 Date 响应头）"};
+                new AlertDialog.Builder(activity)
+                        .setTitle("自动更新方式")
+                        .setItems(labels, new android.content.DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(android.content.DialogInterface dialog, int which) {
+                                Prefs.setAutoTimeMode(activity, which == 1 ? "http" : "ntp");
+                                modeValue.setText(which == 1 ? "方式：HTTP" : "方式：NTP");
+                                syncNow();
+                            }
+                        })
+                        .show();
+            }
+        });
+        root.addView(modeValue, Ui.block(activity));
+
+        final EditText ntpHost = new EditText(activity);
+        ntpHost.setInputType(InputType.TYPE_CLASS_TEXT);
+        ntpHost.setText(Prefs.ntpHost(activity));
+        ntpHost.setHint("NTP 服务器：ntp.aliyun.com 或 IP[:端口]");
+        ntpHost.setContentDescription("NTP 服务器地址");
+        root.addView(ntpHost, Ui.block(activity));
+
+        LinearLayout httpRow = Ui.row(activity);
+        final EditText httpHost = new EditText(activity);
+        httpHost.setInputType(InputType.TYPE_CLASS_TEXT);
+        httpHost.setText(Prefs.httpTimeHost(activity));
+        httpHost.setHint("HTTP 域名 / IP / 完整 URL");
+        httpHost.setContentDescription("HTTP 地址");
+        TextView httpPrefix = new TextView(activity);
+        httpPrefix.setText("HTTP 地址：");
+        httpPrefix.setTextColor(Color.BLACK);
+        httpRow.addView(httpPrefix, Ui.wrap(activity));
+        httpRow.addView(httpHost);
+        final EditText httpPort = new EditText(activity);
+        httpPort.setInputType(InputType.TYPE_CLASS_NUMBER);
+        httpPort.setText(String.valueOf(Prefs.httpTimePort(activity)));
+        httpPort.setContentDescription("HTTP 端口");
+        TextView portPrefix = new TextView(activity);
+        portPrefix.setText("端口：");
+        portPrefix.setTextColor(Color.BLACK);
+        httpRow.addView(portPrefix, Ui.wrap(activity));
+        httpRow.addView(httpPort, Ui.wrap(activity));
+        root.addView(httpRow, Ui.block(activity));
+
+        final TextView syncStatus = new TextView(activity);
+        syncStatus.setTextSize(12);
+        syncStatus.setTextColor(Color.DKGRAY);
+        root.addView(syncStatus, Ui.block(activity));
+
+        // ---- 双向联动 ----
+        offsetInput.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int a, int b, int c) {
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable s) {
+                if (timeInput.hasFocus()) return;
+                timeInput.setText(TimeSync.format(
+                        System.currentTimeMillis() + offsetOf(offsetInput) * 1000L, zone));
+                updateCalibrated(calibrated, offsetOf(offsetInput), zone);
+            }
+        });
+        timeInput.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int a, int b, int c) {
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable s) {
+                if (offsetInput.hasFocus()) return;
+                long target = parseTime(timeInput.getText().toString(), zone);
+                if (target == 0) return;
+                long offset = offsetFor(target);
+                offsetInput.setText(String.valueOf(offset));
+                updateCalibrated(calibrated, offset, zone);
+            }
+        });
+        refreshTimes(current, calibrated, offsetInput, timeInput);
+
+        ScrollView scroll = new ScrollView(activity);
+        scroll.addView(root);
+
+        new AlertDialog.Builder(activity)
+                .setTitle("时间校准")
+                .setView(scroll)
+                .setPositiveButton("保存", new android.content.DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(android.content.DialogInterface dialog, int which) {
+                        long offset = offsetOf(offsetInput);
+                        TimeSync.applyOffset(activity, offset);
+                        Prefs.setAutoTime(activity, auto.isChecked());
+                        Prefs.setNtpHost(activity, ntpHost.getText().toString());
+                        Prefs.setHttpTimeHost(activity, httpHost.getText().toString());
+                        Prefs.setHttpTimePort(activity, parsePort(httpPort.getText().toString()));
+                        OverlayService.refresh(activity);
+                        refresh();
+                        toast("已保存，偏移 " + offset + " 秒");
+                    }
+                })
+                .setNeutralButton("立即同步对时", new android.content.DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(android.content.DialogInterface dialog, int which) {
+                        Prefs.setAutoTime(activity, auto.isChecked());
+                        Prefs.setNtpHost(activity, ntpHost.getText().toString());
+                        Prefs.setHttpTimeHost(activity, httpHost.getText().toString());
+                        Prefs.setHttpTimePort(activity, parsePort(httpPort.getText().toString()));
+                        TimeSync.sync(activity, "手动同步", new TimeSync.Callback() {
+                            @Override
+                            public void onResult(Long offsetSeconds, String message) {
+                                final String text = message;
+                                activity.runOnUiThread(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        syncStatus.setText(text);
+                                        if (offsetSeconds != null) {
+                                            offsetInput.setText(String.valueOf(offsetSeconds));
+                                        }
+                                        OverlayService.refresh(activity);
+                                        refresh();
+                                    }
+                                });
+                            }
+                        });
+                        syncStatus.setText("正在同步…（" + modeLabel() + "）");
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private String modeLabel() {
+        return "http".equals(Prefs.autoTimeMode(activity)) ? "HTTP" : "NTP";
+    }
+
+    private void askZone(final TextView zoneValue, final TextView current, final TextView calibrated,
+                         final EditText offsetInput, final EditText timeInput) {
+        final EditText input = new EditText(activity);
+        input.setInputType(InputType.TYPE_CLASS_TEXT);
+        input.setHint("例如 Asia/Shanghai 或 GMT+08:00");
+        input.setText(Prefs.timeZoneId(activity));
+        new AlertDialog.Builder(activity)
+                .setTitle("手动输入时区 ID")
+                .setView(input)
+                .setPositiveButton("确定", new android.content.DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(android.content.DialogInterface dialog, int which) {
+                        String id = input.getText().toString().trim();
+                        if (id.isEmpty()) return;
+                        Prefs.setTimeZoneId(activity, id);
+                        TimeSync.applyDefaultZone(activity);
+                        zoneValue.setText(id);
+                        refreshTimes(current, calibrated, offsetInput, timeInput);
+                        OverlayService.refresh(activity);
+                        refresh();
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void syncNow() {
+        // 切换方式后立刻试一次，让用户马上看到结果
+        TimeSync.sync(activity, "手动同步", null);
+    }
+
+    private void refreshTimes(TextView current, TextView calibrated, EditText offsetInput,
+                              EditText timeInput) {
+        long device = System.currentTimeMillis();
+        long offset = offsetOf(offsetInput);
+        java.util.TimeZone zone = TimeSync.zone(activity);
+        current.setText("本机时间：" + TimeSync.format(device, zone)
+                + "\n校准后时间：" + TimeSync.format(device + offset * 1000L, zone)
+                + "\n时区：" + Prefs.timeZoneId(activity));
+        if (!timeInput.hasFocus() && timeInput.getText().length() == 0) {
+            timeInput.setText(TimeSync.format(device + offset * 1000L, zone));
+        }
+        updateCalibrated(calibrated, offset, zone);
+    }
+
+    private void updateCalibrated(TextView label, long offset, java.util.TimeZone zone) {
+        long device = System.currentTimeMillis();
+        label.setText("偏移 " + offset + " 秒（" + TimeSync.describeOffset((int) offset) + "）");
+        label.append("\n本机 " + TimeSync.format(device, zone)
+                + " → 校准后 " + TimeSync.format(device + offset * 1000L, zone));
+    }
+
+    /** 当前时间输入框里写的"正确时刻"对应的完整时间戳；解析失败返回 0。 */
+    private long parseTime(String text, java.util.TimeZone zone) {
+        String value = text == null ? "" : text.trim();
+        if (value.isEmpty()) return 0;
+        String[] patterns = {"yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "MM-dd HH:mm:ss",
+                "HH:mm:ss", "HH:mm"};
+        for (String pattern : patterns) {
+            try {
+                java.text.SimpleDateFormat format =
+                        new java.text.SimpleDateFormat(pattern, Locale.US);
+                format.setLenient(false);
+                format.setTimeZone(zone);
+                java.util.Date parsed = format.parse(value);
+                if (parsed == null) continue;
+                Calendar result = Calendar.getInstance(zone);
+                result.setTime(parsed);
+                Calendar now = Calendar.getInstance(zone);
+                if (pattern.startsWith("HH")) {
+                    // 只有时刻：按"今天或明天"里最接近现在的那个解释
+                    result.set(Calendar.YEAR, now.get(Calendar.YEAR));
+                    result.set(Calendar.MONTH, now.get(Calendar.MONTH));
+                    result.set(Calendar.DAY_OF_MONTH, now.get(Calendar.DAY_OF_MONTH));
+                    if (Math.abs(result.getTimeInMillis() - now.getTimeInMillis()) > 12 * 3600_000L) {
+                        result.add(Calendar.DAY_OF_MONTH,
+                                result.after(now) ? -1 : 1);
+                    }
+                } else if (pattern.startsWith("MM-")) {
+                    result.set(Calendar.YEAR, now.get(Calendar.YEAR));
+                }
+                return result.getTimeInMillis();
+            } catch (Exception ignored) {
+            }
+        }
+        return 0;
+    }
+
+    /** 用"正确时刻"反解偏移，并保留当前的日历日差。 */
+    private long offsetFor(long realMillis) {
+        return Math.round((realMillis - System.currentTimeMillis()) / 1000.0);
+    }
+
+    private long offsetOf(EditText input) {
+        try {
+            String text = input.getText().toString().trim();
+            if (text.isEmpty() || "-".equals(text) || "+".equals(text)) return 0;
+            return (long) Double.parseDouble(text);
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private int parsePort(String text) {
+        try {
+            return Integer.parseInt(text.trim());
+        } catch (Exception e) {
+            return Prefs.DEFAULT_HTTP_PORT;
+        }
     }
 
     private interface NumberSink {
