@@ -26,6 +26,8 @@ public class App extends Application {
                         .currentOffsetSeconds(this) + " 秒");
         // 打开"自动更新时间"时，启动就尝试同步一次
         org.bluepowerrobotics.classframe.data.TimeSync.syncAutoQuietly(this);
+        // APK 升级后用 assets 里的班级模板刷新私有目录副本（旧副本会让"应用班级"看起来没生效）
+        org.bluepowerrobotics.classframe.data.ClassTemplateRepository.syncAssets(this);
     }
 
     public static Context ctx() {

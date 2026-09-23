@@ -739,6 +739,13 @@ public class SystemPage implements MainActivity.Page {
         root.addView(checkHint, Ui.block(activity));
 
         // ---- 双向联动 ----
+        /*
+         * 两个输入框互相回写，必须用一个标志位挡住重入。
+         * 之前靠 hasFocus() 判断，但对话框刚弹出时两边都没有焦点，
+         * 于是 setText 触发对方、对方再 setText 回来，直接 StackOverflowError（表现为"点开就卡死/闪退"）。
+         */
+        final boolean[] syncing = {false};
+
         offsetInput.addTextChangedListener(new android.text.TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence s, int a, int b, int c) {
@@ -750,10 +757,19 @@ public class SystemPage implements MainActivity.Page {
 
             @Override
             public void afterTextChanged(android.text.Editable s) {
-                if (timeInput.hasFocus()) return;
-                timeInput.setText(TimeSync.format(
-                        System.currentTimeMillis() + offsetOf(offsetInput) * 1000L, zone));
-                updateCalibrated(calibrated, offsetOf(offsetInput), zone);
+                if (syncing[0]) return;
+                syncing[0] = true;
+                try {
+                    long offset = offsetOf(offsetInput);
+                    String text = TimeSync.format(
+                            System.currentTimeMillis() + offset * 1000L, zone);
+                    if (!text.equals(timeInput.getText().toString())) {
+                        timeInput.setText(text);
+                    }
+                    updateCalibrated(calibrated, offset, zone);
+                } finally {
+                    syncing[0] = false;
+                }
             }
         });
         timeInput.addTextChangedListener(new android.text.TextWatcher() {
@@ -767,15 +783,35 @@ public class SystemPage implements MainActivity.Page {
 
             @Override
             public void afterTextChanged(android.text.Editable s) {
-                if (offsetInput.hasFocus()) return;
-                long target = parseTime(timeInput.getText().toString(), zone);
-                if (target == 0) return;
-                long offset = offsetFor(target);
-                offsetInput.setText(String.valueOf(offset));
-                updateCalibrated(calibrated, offset, zone);
+                if (syncing[0]) return;
+                syncing[0] = true;
+                try {
+                    long target = parseTime(timeInput.getText().toString(), zone);
+                    if (target == 0) {
+                        // 还没写完整：只更新提示，不动偏移框
+                        current.setText("本机时间：" + TimeSync.format(
+                                System.currentTimeMillis(), zone)
+                                + "\n（时间格式：yyyy-MM-dd HH:mm:ss，也可只写 HH:mm:ss）");
+                        return;
+                    }
+                    long offset = offsetFor(target);
+                    String text = String.valueOf(offset);
+                    if (!text.equals(offsetInput.getText().toString())) {
+                        offsetInput.setText(text);
+                    }
+                    updateCalibrated(calibrated, offset, zone);
+                } finally {
+                    syncing[0] = false;
+                }
             }
         });
-        refreshTimes(current, calibrated, offsetInput, timeInput);
+        // 初次填充：先写偏移框，再写时间框，全过程都处于"正在同步"状态
+        syncing[0] = true;
+        try {
+            refreshTimes(current, calibrated, offsetInput, timeInput);
+        } finally {
+            syncing[0] = false;
+        }
 
         ScrollView scroll = new ScrollView(activity);
         scroll.addView(root);
@@ -871,9 +907,9 @@ public class SystemPage implements MainActivity.Page {
         current.setText("本机时间：" + TimeSync.format(device, zone)
                 + "\n校准后时间：" + TimeSync.format(device + offset * 1000L, zone)
                 + "\n时区：" + Prefs.timeZoneId(activity));
-        if (!timeInput.hasFocus() && timeInput.getText().length() == 0) {
-            timeInput.setText(TimeSync.format(device + offset * 1000L, zone));
-        }
+        // 时间框始终与偏移保持一致（用户直接改它时由 watcher 反向推算偏移）
+        String text = TimeSync.format(device + offset * 1000L, zone);
+        if (!text.equals(timeInput.getText().toString())) timeInput.setText(text);
         updateCalibrated(calibrated, offset, zone);
     }
 
