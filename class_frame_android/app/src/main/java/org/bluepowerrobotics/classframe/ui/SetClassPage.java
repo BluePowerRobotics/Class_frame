@@ -14,6 +14,8 @@ import android.widget.Toast;
 
 import org.bluepowerrobotics.classframe.data.ClassTemplateRepository;
 import org.bluepowerrobotics.classframe.data.ConfigRepository;
+import org.bluepowerrobotics.classframe.data.Logs;
+import org.bluepowerrobotics.classframe.data.Positions;
 import org.bluepowerrobotics.classframe.overlay.OverlayService;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -195,6 +197,7 @@ public class SetClassPage implements MainActivity.Page {
             if (options != null) config.put("更换选项", options);
             config.put("开始时间", adjusted[0]);
             config.put("结束时间", adjusted[1]);
+            applyPositionTables(config, target);
             ConfigRepository.save(activity, config);
             OverlayService.refresh(activity);
             toast(oldCount == target
@@ -203,6 +206,50 @@ public class SetClassPage implements MainActivity.Page {
         } catch (Exception e) {
             toast("应用失败：" + e.getMessage());
         }
+    }
+
+    /**
+     * 把班级模板里的三层位置表并进配置。
+     *
+     * 班级文件缺这三张表时沿用现有配置；行长度按新的课节数对齐
+     * （截断或补 "default"），避免出现"表比课节数长/短"的错位。
+     */
+    private void applyPositionTables(JSONObject config, int lessons) throws Exception {
+        Object daily = currentTemplate.opt("每日日程");
+        if (daily != null) {
+            config.put("每日日程",
+                    Positions.writeDaily(Positions.readDaily(daily, lessons), lessons));
+        }
+        JSONObject perLesson = currentTemplate.optJSONObject("单课日程");
+        if (perLesson != null) {
+            JSONObject target = new JSONObject();
+            for (int day = 1; day <= 7; day++) {
+                String[] row = Positions.readRow(perLesson.opt(String.valueOf(day)), lessons);
+                try {
+                    target.put(String.valueOf(day), Positions.writeRow(row, lessons));
+                } catch (Exception ignored) {
+                }
+            }
+            config.put("单课日程", target);
+        }
+        JSONObject global = currentTemplate.optJSONObject("全局日程");
+        if (global != null) {
+            String on = Positions.normalize(global.opt("上课"));
+            String off = Positions.normalize(global.opt("下课"));
+            JSONObject target = new JSONObject();
+            try {
+                target.put("上课", Positions.isConcrete(on) ? on : Positions.UPPER_TABLE);
+                target.put("下课", Positions.isConcrete(off) ? off : Positions.UPPER_TABLE);
+            } catch (Exception ignored) {
+            }
+            config.put("全局日程", target);
+            // 与旧键保持同步，旧版 Python 与旧数据仍能读懂
+            config.put("上课默认位置", new JSONArray().put(Positions.dockOf(on)));
+            config.put("下课默认位置", new JSONArray().put(Positions.dockOf(off)));
+            config.put("上课默认使用secondStyle", Positions.secondStyleOf(on));
+            config.put("下课默认使用secondStyle", Positions.secondStyleOf(off));
+        }
+        Logs.i("SetClass", "已应用班级位置表，课节数 " + lessons);
     }
 
     private int validateSchedule(JSONObject schedule) throws Exception {
