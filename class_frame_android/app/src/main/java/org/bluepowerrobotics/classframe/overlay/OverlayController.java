@@ -14,8 +14,11 @@ import org.bluepowerrobotics.classframe.data.Config;
 import org.bluepowerrobotics.classframe.data.ConfigRepository;
 import org.bluepowerrobotics.classframe.data.DayChangeRepository;
 import org.bluepowerrobotics.classframe.data.Logs;
+import org.bluepowerrobotics.classframe.data.PositionStore;
+import org.bluepowerrobotics.classframe.data.Positions;
 import org.bluepowerrobotics.classframe.data.Prefs;
 import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -70,6 +73,8 @@ public final class OverlayController implements OverlayView.Listener {
     private float dragRefY;
     private float dragMoved;
     private OverlayView.Kind lastKind;
+    /** 本次拖动/点按开始时的形态，用来判断"是否真的变了"。 */
+    private String dragStartStyle;
 
     // 编辑器状态
     private Calendar editorDate = Calendar.getInstance();
@@ -527,15 +532,37 @@ public final class OverlayController implements OverlayView.Listener {
         if (countView != null) countView.setLineHeightScale(lineHeight);
     }
 
+    /**
+     * 按三层体系（data 第3项 → ③每课 → ②每日 → ①全局）决定当前位置。
+     * 只在"上课/下课"状态切换时重新解析，其余时间保留用户拖动/点按的结果。
+     */
     private void applyStateDefaults() {
         if (config == null || state == null) return;
         if (lastAfterClass == null || state.afterClass != lastAfterClass) {
             lastAfterClass = state.afterClass;
-            if (!dragging) {
-                dock = state.afterClass ? config.offDefaultDock : config.onDefaultDock;
-                secondStyle = state.afterClass ? config.offDefaultSecondStyle : config.onDefaultSecondStyle;
-            }
+            if (!dragging) applyResolvedPosition();
         }
+    }
+
+    private void applyResolvedPosition() {
+        String style = resolveStyle();
+        if (style == null) return;
+        dock = Positions.dockOf(style);
+        secondStyle = Positions.secondStyleOf(style);
+    }
+
+    /** 当前时刻生效的形态；无法判断时返回 null（保持现状）。 */
+    private String resolveStyle() {
+        if (config == null || state == null) return null;
+        Calendar calendar = now();
+        int lesson = state.stateIndex >= 0 ? state.stateIndex : state.stateNext;
+        if (lesson < 0) return null;
+        int lessons = config.lessonCount();
+        String[] dataRow = DayChangeRepository.positionsForDate(
+                context, dateString(calendar), lessons);
+        return Positions.resolve(dataRow, config.perLessonSchedule, config.dailySchedule,
+                lesson, isoWeekday(calendar), state.afterClass,
+                config.globalOn, config.globalOff);
     }
 
     private static OverlayView.Kind kindFor(String dock, boolean secondStyle) {
@@ -562,6 +589,7 @@ public final class OverlayController implements OverlayView.Listener {
         dragging = true;
         dragClick = true;
         styleApplied = false;
+        dragStartStyle = Positions.of(dock, secondStyle);
         dragMoved = 0f;
         dragZone = dock;
         dirty = true;
@@ -654,8 +682,64 @@ public final class OverlayController implements OverlayView.Listener {
         } else if (!styleApplied && config != null) {
             secondStyle = Boolean.TRUE.equals(config.dragDefaults.get(zone));
         }
+        persistStyleIfChanged();
         dirty = true;
         refresh();
+    }
+
+    /**
+     * 拖动/点按之后的记忆路径。
+     *
+     * 判据：结果与开始前相同 → 什么都不写；确实变了，且这一格的课节种类与 config
+     * 一致（当天的调课记录没有替换它）→ 写 config 的③每课；被调课记录替换过 → 只写记录。
+     */
+    private void persistStyleIfChanged() {
+        if (config == null || state == null) return;
+        String current = Positions.of(dock, secondStyle);
+        if (dragStartStyle != null && dragStartStyle.equals(current)) return;
+        int lesson = state.stateIndex >= 0 ? state.stateIndex : state.stateNext;
+        if (lesson < 0) return;
+        try {
+            Calendar calendar = now();
+            String date = dateString(calendar);
+            int lessons = config.lessonCount();
+            boolean override = dataOverridesLesson(date, calendar, lesson, lessons);
+            PositionStore.apply(context, date, isoWeekday(calendar), lesson, current,
+                    override, lessons);
+        } catch (Exception e) {
+            Logs.e(TAG, "记录单课位置失败", e);
+        }
+    }
+
+    /**
+     * 当天该格的课节是否被调课记录替换过。
+     * 判据是"记录里的这节课与 config 模板不一致"——只有一致时，位置才允许记进 config。
+     */
+    private boolean dataOverridesLesson(String date, Calendar calendar, int lesson, int lessons) {
+        int expected = config.starts.size() + 2;
+        JSONArray override = DayChangeRepository.tokensForDate(context, date, expected);
+        if (override == null) return false;
+        List<String> overrideTokens = toStringList(override);
+        int index = StateMachine.tokenIndexOf(lesson, overrideTokens);
+        if (index < 0 || index >= overrideTokens.size()) return false;
+        JSONObject schedule = config.raw.optJSONObject("日程表");
+        JSONArray row = schedule == null ? null
+                : schedule.optJSONArray(String.valueOf(isoWeekday(calendar)));
+        return !overrideTokens.get(index).equals(
+                templateToken(row, lesson));
+    }
+
+    /** 取 config 日程表里第 lesson 节课的名字；取不到时返回不可能匹配的哨兵。 */
+    private static String templateToken(JSONArray row, int lesson) {
+        if (row == null) return "\u0000";
+        int seen = -1;
+        for (int i = 0; i < row.length(); i++) {
+            String token = row.optString(i);
+            if (Config.isSpecialToken(token)) continue;
+            seen++;
+            if (seen == lesson) return token;
+        }
+        return "\u0000";
     }
 
     @Override
@@ -680,16 +764,37 @@ public final class OverlayController implements OverlayView.Listener {
         requestFrames();
         if (tokenIndex < 0 || tokenIndex >= editorTokens.size()) return;
         if (Config.isSpecialToken(editorTokens.get(tokenIndex))) return;
+        // 课被替换了，原"每课"设置不再适用：把当前位置记到②每日，覆盖这一格
+        rememberEditorPosition();
         editorTokens.set(tokenIndex, course);
         try {
             JSONArray array = new JSONArray();
             for (String token : editorTokens) array.put(token);
-            DayChangeRepository.upsert(context, dateString(editorDate), array);
+            // 保留该日期原有的位置行，别因为一次调课把位置信息冲掉
+            Object positions = DayChangeRepository.rawPositionsForDate(context,
+                    dateString(editorDate));
+            JSONArray positionArray = positions instanceof JSONArray
+                    ? (JSONArray) positions : null;
+            DayChangeRepository.upsert(context, dateString(editorDate), array, positionArray);
         } catch (Exception e) {
             Toast.makeText(context, "保存调课失败：" + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
         dirty = true;
         refresh();
+    }
+
+    /** 把编辑器当前形态记进②每日（编辑器编辑的是"某天"，而不是"每节课的默认"）。 */
+    private void rememberEditorPosition() {
+        if (config == null) return;
+        int lesson = state == null ? -1
+                : (state.stateIndex >= 0 ? state.stateIndex : state.stateNext);
+        if (lesson < 0) return;
+        try {
+            PositionStore.writeDaily(context, isoWeekday(editorDate), lesson,
+                    Positions.of(dock, secondStyle));
+        } catch (Exception e) {
+            Logs.e(TAG, "记录编辑器位置失败", e);
+        }
     }
 
     private void loadEditorTokens() {

@@ -50,6 +50,22 @@ public final class Config {
     public final Map<String, Boolean> dragDefaults = new HashMap<>();
     public final Map<String, Float> scale = new HashMap<>();
 
+    // ------------------------------------------------------------ 单课默认位置（三层）
+
+    /** ①全局：上课中用的形态。等价于旧的"上课默认位置 + 上课默认使用secondStyle"。 */
+    public String globalOn = Positions.UPPER_TABLE;
+    /** ①全局：课间/放学用的形态。 */
+    public String globalOff = Positions.UPPER_TABLE;
+    /** ②每日：7 天 × 课节数。 */
+    public String[][] dailySchedule = new String[7][];
+    /** ③每课：7 天 × 课节数。 */
+    public String[][] perLessonSchedule = new String[7][];
+
+    /** 课节数（三张位置表的行长）。 */
+    public int lessonCount() {
+        return Math.min(starts.size(), ends.size());
+    }
+
     public static Config parse(JSONObject source) throws JSONException {
         if (source == null) throw new IllegalArgumentException("config.json 内容为空");
         JSONObject cfg = migrate(source);
@@ -100,6 +116,16 @@ public final class Config {
                 "left上课缩放", "left下课缩放", "upper上课缩放", "upper下课缩放", "center缩放"}) {
             c.scale.put(key, (float) Json.numD(cfg.opt(key), 1.0));
         }
+
+        /*
+         * 三层位置：①全局用旧键迁移，②③缺失时留空（等价于全"默认"→ 全部回退到①）。
+         * 老配置里没有这两张表，读出来就是"没有覆盖"，行为与升级前一致。
+         */
+        c.globalOn = Positions.fromLegacy(c.onDefaultDock, c.onDefaultSecondStyle);
+        c.globalOff = Positions.fromLegacy(c.offDefaultDock, c.offDefaultSecondStyle);
+        int lessons = c.lessonCount();
+        c.dailySchedule = Positions.readTable(cfg.opt("每日日程"), lessons);
+        c.perLessonSchedule = Positions.readTable(cfg.opt("单课日程"), lessons);
         return c;
     }
 

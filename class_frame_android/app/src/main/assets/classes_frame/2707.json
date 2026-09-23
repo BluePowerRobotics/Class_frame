@@ -1,16 +1,474 @@
 {
-    "日程表": {
-      "1": [            "旗",            "|",            "班",            "语",            "体",            "物",            "英",            "|",            "自",            "化",            "数",            "数",            "生",            "|",            "自",            "自"        ],        "2": [            "自",            "|",            "政",            "英",            "化",            "数",            "物",            "|",            "自",            "生",            "体",            "自",            "语",            "|",            "自",            "自"        ],        "3": [            "自",            "|",            "英",            "语",            "数",            "美",            "体",            "|",            "史",            "自",            "物",            "化",            "生",            "|",            "自",            "自"        ],        "4": [            "自",            "|",            "语",            "语",            "英",            "英",            "数",            "|",            "地",            "政",            "劳",            "社",            "社",            "|",            "自",            "自"        ],        "5": [            "自",            "|",            "英",            "数",            "化",            "政",            "物",            "|",            "生",            "自",            "体",            "无",            "无",            "|",            "无",            "无"        ],        "6": [            "无",            "|",            "无",            "无",            "无",            "无",            "无",            "|",            "无",            "无",            "无",            "无",            "无",            "|",            "无",            "无"        ],        "7": [            "无",            "|",            "无",            "无",            "无",            "无",            "无",            "|",            "无",            "无",            "无",            "无",            "无",            "|",            "无",            "无"        ]
-    },
-    "更换选项": [
-      "语","数","英","物","化","生","政","史","地","劳","自","无","社","体","美","班"
+  "日程表": {
+    "1": [
+      "旗",
+      "|",
+      "班",
+      "语",
+      "体",
+      "物",
+      "英",
+      "|",
+      "自",
+      "化",
+      "数",
+      "数",
+      "生",
+      "|",
+      "自",
+      "自"
     ],
-    "开始时间": [
-      [7, 10], [7, 58], [8, 48], [9, 45], [10, 38], [11, 28],
-      [13, 8], [13, 58], [14, 48], [15, 58], [16, 48], [18, 25], [20, 10]
+    "2": [
+      "自",
+      "|",
+      "政",
+      "英",
+      "化",
+      "数",
+      "物",
+      "|",
+      "自",
+      "生",
+      "体",
+      "自",
+      "语",
+      "|",
+      "自",
+      "自"
     ],
-    "结束时间": [
-      [7, 50], [8, 40], [9, 30], [10, 30], [11, 20], [12, 10],
-      [13, 50], [14, 40], [15, 30], [16, 40], [17, 30], [20, 0], [21, 15]
+    "3": [
+      "自",
+      "|",
+      "英",
+      "语",
+      "数",
+      "美",
+      "体",
+      "|",
+      "史",
+      "自",
+      "物",
+      "化",
+      "生",
+      "|",
+      "自",
+      "自"
+    ],
+    "4": [
+      "自",
+      "|",
+      "语",
+      "语",
+      "英",
+      "英",
+      "数",
+      "|",
+      "地",
+      "政",
+      "劳",
+      "社",
+      "社",
+      "|",
+      "自",
+      "自"
+    ],
+    "5": [
+      "自",
+      "|",
+      "英",
+      "数",
+      "化",
+      "政",
+      "物",
+      "|",
+      "生",
+      "自",
+      "体",
+      "无",
+      "无",
+      "|",
+      "无",
+      "无"
+    ],
+    "6": [
+      "无",
+      "|",
+      "无",
+      "无",
+      "无",
+      "无",
+      "无",
+      "|",
+      "无",
+      "无",
+      "无",
+      "无",
+      "无",
+      "|",
+      "无",
+      "无"
+    ],
+    "7": [
+      "无",
+      "|",
+      "无",
+      "无",
+      "无",
+      "无",
+      "无",
+      "|",
+      "无",
+      "无",
+      "无",
+      "无",
+      "无",
+      "|",
+      "无",
+      "无"
     ]
+  },
+  "更换选项": [
+    "语",
+    "数",
+    "英",
+    "物",
+    "化",
+    "生",
+    "政",
+    "史",
+    "地",
+    "劳",
+    "自",
+    "无",
+    "社",
+    "体",
+    "美",
+    "班"
+  ],
+  "开始时间": [
+    [
+      7,
+      10
+    ],
+    [
+      7,
+      58
+    ],
+    [
+      8,
+      48
+    ],
+    [
+      9,
+      45
+    ],
+    [
+      10,
+      38
+    ],
+    [
+      11,
+      28
+    ],
+    [
+      13,
+      8
+    ],
+    [
+      13,
+      58
+    ],
+    [
+      14,
+      48
+    ],
+    [
+      15,
+      58
+    ],
+    [
+      16,
+      48
+    ],
+    [
+      18,
+      25
+    ],
+    [
+      20,
+      10
+    ]
+  ],
+  "结束时间": [
+    [
+      7,
+      50
+    ],
+    [
+      8,
+      40
+    ],
+    [
+      9,
+      30
+    ],
+    [
+      10,
+      30
+    ],
+    [
+      11,
+      20
+    ],
+    [
+      12,
+      10
+    ],
+    [
+      13,
+      50
+    ],
+    [
+      14,
+      40
+    ],
+    [
+      15,
+      30
+    ],
+    [
+      16,
+      40
+    ],
+    [
+      17,
+      30
+    ],
+    [
+      20,
+      0
+    ],
+    [
+      21,
+      15
+    ]
+  ],
+  "全局日程": {
+    "上课": "upper_bar",
+    "下课": "upper_table"
+  },
+  "每日日程": {
+    "1": [
+      "upper_table",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "time",
+      "default"
+    ],
+    "2": [
+      "upper_table",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "time",
+      "default"
+    ],
+    "3": [
+      "upper_table",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "time",
+      "default"
+    ],
+    "4": [
+      "upper_table",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "time",
+      "default"
+    ],
+    "5": [
+      "upper_table",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "time",
+      "default"
+    ],
+    "6": [
+      "upper_table",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "time",
+      "default"
+    ],
+    "7": [
+      "upper_table",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "time",
+      "default"
+    ]
+  },
+  "单课日程": {
+    "1": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "2": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "3": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "4": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "5": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "6": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "7": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ]
+  }
 }

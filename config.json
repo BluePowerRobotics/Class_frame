@@ -4,86 +4,86 @@
       "旗",
       "|",
       "班",
-      "英",
-      "数",
-      "数",
-      "|",
-      "语",
-      "体",
-      "生",
+      "等",
       "物",
+      "语",
+      "|",
+      "体",
+      "化",
+      "数",
+      "数",
       "数",
       "|",
-      "自",
+      "英",
       "自"
     ],
     "2": [
-      "英",
-      "|",
-      "数",
       "语",
-      "英",
+      "|",
+      "语",
+      "物",
+      "数",
       "英",
       "|",
+      "等",
       "体",
-      "生",
-      "物",
+      "英",
       "化",
       "英",
       "|",
-      "自",
+      "物/生/政",
       "自"
     ],
     "3": [
-      "语",
-      "|",
-      "化",
       "英",
-      "语",
-      "语",
       "|",
-      "生",
+      "英",
       "数",
-      "生",
-      "物",
+      "语",
       "语",
       "|",
-      "自",
+      "生史限时",
+      "化",
+      "体",
+      "等",
+      "语",
+      "|",
+      "语/史/地",
       "自"
     ],
     "4": [
-      "英",
-      "|",
       "语",
-      "社",
-      "数",
-      "数",
       "|",
+      "数",
+      "数",
+      "语",
+      "体",
+      "|",
+      "物理限时",
       "物",
-      "化",
       "英",
       "英",
       "英",
       "|",
-      "自",
+      "数化答疑",
       "自"
     ],
     "5": [
-      "语",
+      "英",
       "|",
       "英",
-      "物",
-      "生",
-      "体",
-      "|",
+      "英",
       "化",
+      "等",
+      "|",
+      "地理限时",
       "数",
-      "化",
-      "自",
+      "化学限时",
+      "物",
       "体",
       "|",
-      "自",
-      "自"
+      "无",
+      "无"
     ],
     "6": [
       "无",
@@ -127,11 +127,21 @@
     "物",
     "化",
     "生",
-    "社",
+    "政",
+    "史",
+    "地",
+    "体",
+    "班",
+    "等",
     "自",
     "无",
-    "体",
-    "班"
+    "生史限时",
+    "物理限时",
+    "地理限时",
+    "化学限时",
+    "物/生/政",
+    "语/史/地",
+    "数化答疑"
   ],
   "开始时间": [
     [
@@ -139,48 +149,48 @@
       10
     ],
     [
-      7,
-      58
+      8,
+      0
     ],
     [
       8,
-      53
+      55
     ],
     [
       10,
-      3
+      5
     ],
     [
-      10,
-      58
-    ],
-    [
-      12,
-      58
+      11,
+      0
     ],
     [
       13,
-      53
+      0
+    ],
+    [
+      13,
+      55
     ],
     [
       14,
-      48
+      50
     ],
     [
       15,
-      38
+      40
     ],
     [
       16,
-      28
+      30
     ],
     [
       18,
-      25
+      30
     ],
     [
       20,
-      5
+      0
     ]
   ],
   "结束时间": [
@@ -258,11 +268,11 @@
     40
   ],
   "上课默认位置": [
-    "right"
+    "upper"
   ],
-  "上课默认使用secondStyle": false,
+  "上课默认使用secondStyle": true,
   "下课默认位置": [
-    "right"
+    "upper"
   ],
   "下课默认使用secondStyle": false,
   "上课提示时长": [
@@ -280,12 +290,6 @@
   "进度条宽度": [
     16
   ],
-  "拖动默认样式": {
-    "left": false,
-    "upper": false,
-    "right": false,
-    "center": false
-  },
   "left上课缩放": [
     0.7
   ],
@@ -300,5 +304,209 @@
   ],
   "center缩放": [
     1
-  ]
+  ],
+  "全局日程": {
+    "上课": "upper_bar",
+    "下课": "upper_table"
+  },
+  "每日日程": {
+    "1": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "2": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "3": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "4": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "5": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "6": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "7": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ]
+  },
+  "单课日程": {
+    "1": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "2": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "3": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "4": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "5": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "6": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "7": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ]
+  }
 }

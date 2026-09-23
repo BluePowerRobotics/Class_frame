@@ -7,6 +7,8 @@ import math
 import sys
 from tkinter import Tk, Toplevel, Label, Button, Canvas
 
+import positions as P
+
 
 SCREEN_GAP = 10
 ISLAND_GAP = 30
@@ -66,10 +68,8 @@ def migrate_config(cfg):
     cfg.setdefault("上课提示时长", [6])
     cfg.setdefault("下课提示时长", [6])
     cfg.setdefault("时间偏移（秒）", [0])
-    style_defaults = cfg.setdefault("拖动默认样式", {})
-    for d in DOCKS:
-        if d not in style_defaults:
-            style_defaults[d] = bool(d == "upper" and legacy_u)
+    # 三层位置表与"拖入区域默认样式"的清理统一走 positions.migrate（两版共用同一套规则）
+    P.migrate(cfg, DOCKS)
     scale = cfg.get("上课放大倍率", [1.0])
     scale = scale[0] if isinstance(scale, (list, tuple)) else scale
     for key, default in (
@@ -395,6 +395,11 @@ class calendar:
         self.offclass_default_pos = _text(cfg, "下课默认位置", "upper")
         self.onclass_second_style = _flag(cfg, "上课默认使用secondStyle", 0)
         self.offclass_second_style = _flag(cfg, "下课默认使用secondStyle", 0)
+        self.lesson_count = min(len(self.on), len(self.off))
+        self.global_on = P.from_legacy(self.onclass_default_pos, self.onclass_second_style)
+        self.global_off = P.from_legacy(self.offclass_default_pos, self.offclass_second_style)
+        self.daily_schedule = P.read_table(cfg.get("每日日程"), self.lesson_count)
+        self.per_lesson_schedule = P.read_table(cfg.get("单课日程"), self.lesson_count)
         self.prompt_duration = max(1, int(_num(cfg.get("上课提示时长", [6])[0], 6)))
         self.off_prompt_duration = max(1, int(_num(cfg.get("下课提示时长", [6])[0], 6)))
         file_offset = int(_num(cfg.get("时间偏移（秒）", [0])[0], 0))
@@ -451,12 +456,7 @@ class calendar:
                 self.today_class = rec[1]
         self.changing_class = list(self.today_class)
         self.update_state(self.now_time())
-        if self.after_class:
-            self.nowgroup = self.offclass_default_pos
-            self.second_style = self.offclass_second_style
-        else:
-            self.nowgroup = self.onclass_default_pos
-            self.second_style = self.onclass_second_style
+        self.apply_resolved_position()
         self.l_nowgroup = self.nowgroup
         self.mainland.attributes("-topmost", bool(self.ontop_onclass))
         self.layout_dirty = True
@@ -530,14 +530,130 @@ class calendar:
             self.off_prompt_left = 0
 
     def apply_state_defaults(self):
-        """状态切换时套用该状态配置的默认停靠位置与默认样式。"""
-        if self.after_class:
-            self.nowgroup = self.offclass_default_pos
-            self.set_style(self.offclass_second_style)
-        else:
-            self.nowgroup = self.onclass_default_pos
-            self.set_style(self.onclass_second_style)
+        """状态切换时按三层体系重新决定位置与样式。"""
+        self.apply_resolved_position()
         self.layout_dirty = True
+
+    # ---------- 单课默认位置（三层） ----------
+
+    def current_lesson_index(self):
+        """当前生效的课节下标（上课中用本节，课间用下一节）；无法判断返回 -1。"""
+        if self.state_index is not None:
+            return self.state_index
+        if self.state_next is not None:
+            return self.state_next
+        return -1
+
+    # ---------- 单课默认位置的记忆路径 ----------
+
+    def _save_config(self):
+        try:
+            with open("config.json", "w", encoding="utf-8") as file:
+                json.dump(self.config, file, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def set_table_cell(self, table_key, day, lesson, style):
+        """写 config 的②每日或③每课，只动一格。"""
+        if lesson < 0 or lesson >= self.lesson_count:
+            return
+        table = self.config.setdefault(table_key, {})
+        row = P.read_row(table.get(str(day)), self.lesson_count)
+        row[lesson] = style
+        table[str(day)] = P.write_row(row, self.lesson_count)
+        self._save_config()
+        if table_key == "每日日程":
+            self.daily_schedule = P.read_table(self.config.get("每日日程"), self.lesson_count)
+        else:
+            self.per_lesson_schedule = P.read_table(self.config.get("单课日程"),
+                                                    self.lesson_count)
+
+    def data_overrides_lesson(self, date_s, day, lesson):
+        """当天该格的课节是否被调课记录替换过（与 config 模板不一致）。"""
+        row = None
+        for rec in self.class_change:
+            if isinstance(rec, (list, tuple)) and len(rec) > 1 and str(rec[0]) == date_s:
+                row = rec[1]
+                break
+        if row is None:
+            return False
+        tokens = [t for t in row if t not in SPECIAL_TEXT]
+        if lesson >= len(tokens):
+            return False
+        template = self.classes.get(str(day)) or []
+        expected = [t for t in template if t not in SPECIAL_TEXT]
+        if lesson >= len(expected):
+            return True
+        return tokens[lesson] != expected[lesson]
+
+    def persist_style_if_changed(self, start_style):
+        """拖动/点按后记录：没变就不写；变了按"能否由 config 解释"决定写哪里。"""
+        current = P.of(self.nowgroup, self.second_style)
+        if start_style is not None and start_style == current:
+            return
+        lesson = self.current_lesson_index()
+        if lesson is None or lesson < 0:
+            return
+        when = self.now_time()
+        date_s = when.strftime("%Y-%m-%d")
+        day = when.isoweekday()
+        if not self.data_overrides_lesson(date_s, day, lesson):
+            self.set_table_cell("单课日程", day, lesson, current)
+            return
+        # 被调课记录覆盖：位置只能记在记录上（记录一定存在，否则上面会判定为不覆盖）
+        row = self.positions_for_date(date_s)
+        if row is None:
+            row = [P.DEFAULT] * self.lesson_count
+        row[lesson] = current
+        # data.json 里不写 "default"：没有覆盖的槽位用空字符串表示
+        stored = [cell if P.is_concrete(cell) else "" for cell in row]
+        new = []
+        replaced = False
+        for rec in self.class_change:
+            if not rec or str(rec[0]) != date_s:
+                new.append(rec)
+                continue
+            new.append([rec[0], rec[1], stored])
+            replaced = True
+        if not replaced:
+            return
+        self.class_change = new
+        try:
+            with open("data.json", "w", encoding="utf-8") as file:
+                json.dump(new, file, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def resolve_style(self, when=None, lesson=None, after_class=None):
+        """解析链：data 第3项 → ③每课 → ②每日 → ①全局。"""
+        day_dt = when or self.now_time()
+        if lesson is None:
+            lesson = self.current_lesson_index()
+        if lesson is None or lesson < 0:
+            return None
+        day = day_dt.isoweekday()
+        data_row = self.positions_for_date(day_dt.strftime("%Y-%m-%d"))
+        if after_class is None:
+            after_class = self.after_class
+        return P.resolve(data_row, self.per_lesson_schedule, self.daily_schedule,
+                         lesson, day, after_class, self.global_on, self.global_off)
+
+    def apply_resolved_position(self):
+        style = self.resolve_style()
+        if style is None:
+            return
+        self.nowgroup = P.dock_of(style)
+        self.set_style(P.second_style_of(style))
+
+    def positions_for_date(self, date_s):
+        """该日期 data 记录里的位置行；没有记录或没有第 3 项时返回 None。"""
+        for rec in self.class_change:
+            if not isinstance(rec, (list, tuple)) or len(rec) < 3:
+                continue
+            if str(rec[0]) != date_s:
+                continue
+            return P.read_row(rec[2], self.lesson_count)
+        return None
 
     def quit_app(self):
         try:
@@ -1158,6 +1274,8 @@ class calendar:
                 best_dist = d
                 best = i
         if best != -1 and best_dist < max(10000, self.font_px("center") ** 2 * 8):
+            # 课被替换了，原"每课"设置不再适用：把当前位置记到②每日
+            self.remember_editor_position()
             self.changing_class[best] = name
             self._set_editor_label_text(self.labels[best], name)
             self.editor_dirty = True
@@ -1165,12 +1283,30 @@ class calendar:
             self.editor_dirty = False
         self.ml.place_forget()
 
+    def remember_editor_position(self):
+        """把编辑器当前形态记进②每日（编辑器编辑的是某一天，不是"每节课的默认"）。"""
+        lesson = self.current_lesson_index()
+        if lesson is None or lesson < 0:
+            return
+        when = getattr(self, "date_view", None) or self.now_time()
+        self.set_table_cell("每日日程", when.isoweekday(), lesson,
+                            P.of(self.nowgroup, self.second_style))
+
     def save_change(self, date_s, tokens):
+        # 保留该日期原有的位置行（第 3 项）——它由三层体系消费，调课不应把它冲掉
+        existing_positions = None
+        for rec in self.class_change:
+            if rec and str(rec[0]) == date_s and len(rec) > 2:
+                existing_positions = rec[2]
+                break
         new = []
         for rec in self.class_change:
             if rec[0] != date_s:
                 new.append(rec)
-        new.append([date_s, tokens])
+        if existing_positions is None:
+            new.append([date_s, tokens])
+        else:
+            new.append([date_s, tokens, existing_positions])
         self.class_change = new
         try:
             with open("data.json", "w", encoding="utf-8") as file:
@@ -1478,6 +1614,8 @@ class calendar:
         self.drag_moved = 0
         self.dragging = True
         self.style_applied = False
+        # 记录操作前的形态，松开时用它判断"是否真的变了"
+        self.drag_start_style = P.of(self.nowgroup, self.second_style)
         # motion/release 必须全局绑定：跨区切换会重建并销毁当前按住的子控件，
         # 若绑在子控件上，拖动事件链会中断（无法拖回、release 丢失）。
         self.mainland.bind_all("<B1-Motion>", self.drag_motion)
@@ -1602,6 +1740,8 @@ class calendar:
         elif not clicked:
             if not self.style_applied:
                 self.set_style(bool(self.drag_defaults.get(zone, False)))
+        self.persist_style_if_changed(getattr(self, "drag_start_style", None))
+        self.drag_start_style = None
         self.press_widget = None
         self.press_role = None
         self.layout_dirty = True

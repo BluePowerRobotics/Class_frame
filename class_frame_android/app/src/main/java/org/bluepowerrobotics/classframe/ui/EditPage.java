@@ -22,6 +22,7 @@ import android.widget.Toast;
 
 import org.bluepowerrobotics.classframe.data.ConfigRepository;
 import org.bluepowerrobotics.classframe.data.DayChangeRepository;
+import org.bluepowerrobotics.classframe.data.Positions;
 import org.bluepowerrobotics.classframe.overlay.OverlayService;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -43,11 +44,10 @@ public class EditPage implements MainActivity.Page {
             {"字号与尺寸", "文字大小:number:1", "竖直显示的文字大小:number:1",
                     "进度条宽度:number:1", "left上课缩放:number:0", "left下课缩放:number:0",
                     "upper上课缩放:number:0", "upper下课缩放:number:0", "center缩放:number:0"},
-            {"停靠位置", "上课默认位置:dock:0", "下课默认位置:dock:0",
-                    "上课默认使用secondStyle:bool:0", "下课默认使用secondStyle:bool:0"},
-            {"拖入区域时默认使用的样式", "拖入left时使用secondStyle:bool:0",
-                    "拖入upper时使用secondStyle:bool:0", "拖入right时使用secondStyle:bool:0",
-                    "拖入center时使用secondStyle:bool:0"},
+            // ①全局：替代原来的"上课/下课默认位置 + 使用secondStyle"，
+            // 也取代"拖入区域时默认使用的样式"（新三层不再依赖它）
+            {"① 全局（未设置②每日/③每课时使用）",
+                    "全局日程·上课:style:0", "全局日程·下课:style:0"},
             {"提示文字", "开始提示:text:0", "结束提示:text:0", "结尾提示:text:0"},
             {"时间校正", "时间偏移（秒）:number:0"},
     };
@@ -80,6 +80,10 @@ public class EditPage implements MainActivity.Page {
     // 参数子页
     private final List<Object> paramWidgets = new ArrayList<>();
     private final List<String> paramKeys = new ArrayList<>();
+
+    // ②每日那一列：默认收起，点列首的 × / 每日 切换
+    private boolean dailyColumnOpen;
+    private int dailyDay = 1;
 
     public EditPage(MainActivity activity) {
         this.activity = activity;
@@ -206,6 +210,26 @@ public class EditPage implements MainActivity.Page {
             header.addView(label, new LinearLayout.LayoutParams(0,
                     ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         }
+        // 周日的右边：②每日那一列的开关（默认收起）
+        TextView dailyToggle = new TextView(activity);
+        dailyToggle.setGravity(Gravity.CENTER);
+        dailyToggle.setTextSize(12);
+        dailyToggle.setTextColor(0xFF1565C0);
+        dailyToggle.setText(dailyColumnOpen ? "× 周" + WEEK[dailyDay - 1] : "每日");
+        dailyToggle.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (dailyColumnOpen) {
+                    dailyColumnOpen = false;
+                    selectTab(0);
+                } else {
+                    chooseDailyDay();
+                }
+            }
+        });
+        header.addView(dailyToggle, new LinearLayout.LayoutParams(
+                Ui.dp(activity, dailyColumnOpen ? 84 : 48),
+                ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(header);
 
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
@@ -250,6 +274,23 @@ public class EditPage implements MainActivity.Page {
                 line.addView(cell, new LinearLayout.LayoutParams(0,
                         ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
             }
+            if (dailyColumnOpen) {
+                // ②每日：这一格表示"某天某节用什么形态"，默认表示跟随①全局
+                final int lessonIndex = courseIndexAtRow(rowIndex);
+                TextView dailyCell = Ui.chooser(activity);
+                dailyCell.setTextSize(11);
+                dailyCell.setText(Positions.labelOf(dailyStyleAt(dailyDay, lessonIndex)));
+                dailyCell.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        choosePosition(dailyCell, "周" + WEEK[dailyDay - 1]
+                                + "·第" + (lessonIndex + 1) + "节（②每日）", true,
+                                dailyDay, lessonIndex);
+                    }
+                });
+                line.addView(dailyCell, new LinearLayout.LayoutParams(
+                        Ui.dp(activity, 84), ViewGroup.LayoutParams.WRAP_CONTENT));
+            }
             root.addView(line);
         }
 
@@ -286,6 +327,205 @@ public class EditPage implements MainActivity.Page {
                     }
                 })
                 .show();
+    }
+
+    // -------------------------------------------------------- ②每日 / ③每课
+
+    /** 界面行号（含分割线）→ 第几节课（0 起）；不是课程行时返回 -1。 */
+    private int courseIndexAtRow(int rowIndex) {
+        int lesson = -1;
+        for (int i = 0; i <= rowIndex && i < rows.size(); i++) {
+            if (!rows.get(i).separator) lesson++;
+        }
+        return rows.get(rowIndex).separator ? -1 : lesson;
+    }
+
+    private int lessonCount() {
+        JSONArray starts = raw.optJSONArray("开始时间");
+        return starts == null ? 0 : starts.length();
+    }
+
+    /** ②每日里某天某节的形态（"default" 表示跟随①全局）。 */
+    private String dailyStyleAt(int day, int lesson) {
+        if (lesson < 0) return Positions.DEFAULT;
+        JSONObject table = raw.optJSONObject("每日日程");
+        if (table == null) return Positions.DEFAULT;
+        String[] row = Positions.readRow(table.opt(String.valueOf(day)), lessonCount());
+        return lesson < row.length ? row[lesson] : Positions.DEFAULT;
+    }
+
+    private String perLessonStyleAt(int day, int lesson) {
+        if (lesson < 0) return Positions.DEFAULT;
+        JSONObject table = raw.optJSONObject("单课日程");
+        if (table == null) return Positions.DEFAULT;
+        String[] row = Positions.readRow(table.opt(String.valueOf(day)), lessonCount());
+        return lesson < row.length ? row[lesson] : Positions.DEFAULT;
+    }
+
+    /** 列首点击：选择这一列显示周几。 */
+    private void chooseDailyDay() {
+        final String[] labels = new String[7];
+        for (int i = 0; i < 7; i++) labels[i] = "周" + WEEK[i];
+        new AlertDialog.Builder(activity)
+                .setTitle("②每日：选择要编辑的星期")
+                .setItems(labels, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        dailyDay = which + 1;
+                        dailyColumnOpen = true;
+                        selectTab(0);
+                    }
+                })
+                .show();
+    }
+
+    /**
+     * 选形态。daily=true 写②每日，false 写③每课。
+     * ③每课只在这里的文本入口里出现，不做图形编辑。
+     */
+    private void choosePosition(final TextView target, String title, final boolean daily,
+                                final int day, final int lesson) {
+        if (lesson < 0) return;
+        final String[] values = Positions.STYLES_WITH_DEFAULT;
+        new AlertDialog.Builder(activity)
+                .setTitle(title)
+                .setItems(Positions.STYLE_LABELS_WITH_DEFAULT,
+                        new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface dialog, int which) {
+                                String style = values[which];
+                                setStyleInTable(daily ? "每日日程" : "单课日程",
+                                        day, lesson, style);
+                                target.setText(Positions.labelOf(style));
+                            }
+                        })
+                .show();
+    }
+
+    /** 写入 config 的②每日或③每课，只动一格。 */
+    private void setStyleInTable(String tableKey, int day, int lesson, String style) {
+        try {
+            JSONObject table = raw.optJSONObject(tableKey);
+            if (table == null) {
+                table = new JSONObject();
+                raw.put(tableKey, table);
+            }
+            int lessons = lessonCount();
+            String[] row = Positions.readRow(table.opt(String.valueOf(day)), lessons);
+            if (lesson >= row.length) return;
+            row[lesson] = style;
+            table.put(String.valueOf(day), Positions.writeRow(row, lessons));
+            ConfigRepository.save(activity, raw);
+            OverlayService.refresh(activity);
+        } catch (Exception e) {
+            toast("保存位置失败：" + e.getMessage());
+        }
+    }
+
+    /** ③每课：文本框整表编辑（不做图形界面）。 */
+    private void showPerLessonEditor() {
+        final EditText input = new EditText(activity);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        input.setTextSize(11);
+        input.setMinLines(8);
+        input.setText(perLessonAsText());
+        new AlertDialog.Builder(activity)
+                .setTitle("③每课（每行一天，用逗号分隔）")
+                .setView(input)
+                .setPositiveButton("保存", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        applyPerLessonText(input.getText().toString());
+                    }
+                })
+                .setNeutralButton("填入②每日", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        for (int day = 1; day <= 7; day++) {
+                            for (int lesson = 0; lesson < lessonCount(); lesson++) {
+                                setStyleInTableQuiet("单课日程", day, lesson,
+                                        dailyStyleAt(day, lesson));
+                            }
+                        }
+                        saveRawQuiet();
+                        toast("已用②每日填充③每课");
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private String perLessonAsText() {
+        StringBuilder sb = new StringBuilder();
+        for (int day = 1; day <= 7; day++) {
+            sb.append("周").append(WEEK[day - 1]).append(':');
+            for (int lesson = 0; lesson < lessonCount(); lesson++) {
+                if (lesson > 0) sb.append(',');
+                sb.append(perLessonStyleAt(day, lesson));
+            }
+            sb.append('\n');
+        }
+        return sb.toString();
+    }
+
+    private void applyPerLessonText(String text) {
+        try {
+            String[] lines = text.split("\n");
+            for (String line : lines) {
+                String value = line.trim();
+                if (value.isEmpty()) continue;
+                int colon = value.indexOf(':');
+                if (colon < 0) colon = value.indexOf('：');
+                if (colon < 0) continue;
+                String dayName = value.substring(0, colon).trim().replace("周", "");
+                int day = -1;
+                for (int i = 0; i < WEEK.length; i++) {
+                    if (WEEK[i].equals(dayName)) day = i + 1;
+                }
+                if (day < 0) continue;
+                String[] parts = value.substring(colon + 1).split("[,，]");
+                int lessons = lessonCount();
+                String[] row = new String[lessons];
+                for (int i = 0; i < lessons; i++) {
+                    row[i] = i < parts.length ? Positions.normalize(parts[i]) : Positions.DEFAULT;
+                }
+                JSONObject table = raw.optJSONObject("单课日程");
+                if (table == null) {
+                    table = new JSONObject();
+                    raw.put("单课日程", table);
+                }
+                table.put(String.valueOf(day), Positions.writeRow(row, lessons));
+            }
+            ConfigRepository.save(activity, raw);
+            OverlayService.refresh(activity);
+            toast("③每课已保存");
+        } catch (Exception e) {
+            toast("保存失败：" + e.getMessage());
+        }
+    }
+
+    private void setStyleInTableQuiet(String tableKey, int day, int lesson, String style) {
+        try {
+            JSONObject table = raw.optJSONObject(tableKey);
+            if (table == null) {
+                table = new JSONObject();
+                raw.put(tableKey, table);
+            }
+            int lessons = lessonCount();
+            String[] row = Positions.readRow(table.opt(String.valueOf(day)), lessons);
+            if (lesson >= row.length) return;
+            row[lesson] = style;
+            table.put(String.valueOf(day), Positions.writeRow(row, lessons));
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void saveRawQuiet() {
+        try {
+            ConfigRepository.save(activity, raw);
+            OverlayService.refresh(activity);
+        } catch (Exception ignored) {
+        }
     }
 
     /** 在指定课程行之后插入一行（课程或分割线），并重排节次编号。 */
@@ -637,6 +877,32 @@ public class EditPage implements MainActivity.Page {
                     });
                     paramWidgets.add(chooser);
                     row.addView(chooser, Ui.wrap(activity));
+                } else if ("style".equals(kind)) {
+                    // ①全局：读"全局日程"，旧配置没有这一项时由旧的
+                    // "上课/下课默认位置 + 使用secondStyle" 迁移过来
+                    final boolean onClass = key.endsWith("上课");
+                    final TextView chooser = Ui.chooser(activity);
+                    chooser.setText(Positions.labelOf(globalStyle(onClass)));
+                    chooser.setOnClickListener(new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            new AlertDialog.Builder(activity)
+                                    .setTitle("① 全局·" + (onClass ? "上课" : "下课"))
+                                    .setItems(Positions.STYLE_LABELS,
+                                            new DialogInterface.OnClickListener() {
+                                                @Override
+                                                public void onClick(DialogInterface dialog, int which) {
+                                                    setGlobalStyle(onClass,
+                                                            Positions.STYLES[which]);
+                                                    chooser.setText(
+                                                            Positions.STYLE_LABELS[which]);
+                                                }
+                                            })
+                                    .show();
+                        }
+                    });
+                    paramWidgets.add(chooser);
+                    row.addView(chooser, Ui.wrap(activity));
                 } else if ("dock".equals(kind)) {
                     final TextView chooser = Ui.chooser(activity);
                     chooser.setText(DOCK_LABELS[dockIndex(textValue(key, "upper"))]);
@@ -668,6 +934,12 @@ public class EditPage implements MainActivity.Page {
                 saveParams();
             }
         }));
+        root.addView(Ui.button(activity, "③每课（文本框整表编辑）", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showPerLessonEditor();
+            }
+        }));
         content.addView(scroll);
     }
 
@@ -675,6 +947,38 @@ public class EditPage implements MainActivity.Page {
         String dock = key.substring(2, key.indexOf("时"));
         JSONObject defaults = raw.optJSONObject("拖动默认样式");
         return defaults != null && defaults.optBoolean(dock, false);
+    }
+
+    /** ①全局当前值；没有"全局日程"时由旧的默认位置 + secondStyle 迁移。 */
+    private String globalStyle(boolean onClass) {
+        JSONObject global = raw.optJSONObject("全局日程");
+        if (global != null && global.has(onClass ? "上课" : "下课")) {
+            return Positions.normalize(global.opt(onClass ? "上课" : "下课"));
+        }
+        String dockKey = onClass ? "上课默认位置" : "下课默认位置";
+        String styleKey = onClass ? "上课默认使用secondStyle" : "下课默认使用secondStyle";
+        String dock = textValue(dockKey, "upper");
+        return Positions.fromLegacy(dock, boolValue(styleKey));
+    }
+
+    /** 写①全局，同时同步旧键，保证 Python 版与旧版仍能读到同样的语义。 */
+    private void setGlobalStyle(boolean onClass, String style) {
+        try {
+            JSONObject global = raw.optJSONObject("全局日程");
+            if (global == null) {
+                global = new JSONObject();
+                raw.put("全局日程", global);
+            }
+            global.put(onClass ? "上课" : "下课", style);
+            raw.put(onClass ? "上课默认位置" : "下课默认位置",
+                    new JSONArray().put(Positions.dockOf(style)));
+            raw.put(onClass ? "上课默认使用secondStyle" : "下课默认使用secondStyle",
+                    Positions.secondStyleOf(style));
+            ConfigRepository.save(activity, raw);
+            OverlayService.refresh(activity);
+        } catch (Exception e) {
+            toast("保存全局位置失败：" + e.getMessage());
+        }
     }
 
     private boolean boolValue(String key) {
@@ -733,6 +1037,10 @@ public class EditPage implements MainActivity.Page {
                 String kind = parts[1];
                 boolean wrapped = "1".equals(parts[2]);
                 Object widget = paramWidgets.get(i);
+                if ("style".equals(kind)) {
+                    // ①全局在点击时就写盘了（并同步旧键），这里不需要再处理
+                    continue;
+                }
                 if ("bool".equals(kind)) {
                     boolean value = "是".equals(((TextView) widget).getText().toString());
                     if (key.startsWith("拖入")) {
@@ -770,6 +1078,11 @@ public class EditPage implements MainActivity.Page {
                         raw.put(key, new JSONArray().put(text));
                     }
                 }
+            }
+            // 需求确认：拖入区域的默认样式不再参与三层体系，保存时直接删掉
+            raw.remove("拖动默认样式");
+            for (String dock : new String[]{"left", "upper", "right", "center"}) {
+                raw.remove("拖入" + dock + "时使用secondStyle");
             }
             ConfigRepository.save(activity, raw);
             OverlayService.refresh(activity);

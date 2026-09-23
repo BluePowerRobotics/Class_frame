@@ -255,11 +255,11 @@
   "下课显示倒计时": [
     1
   ],
-  "下课隐藏悬浮层": [
-    0
+  "下课置顶": [
+    1
   ],
-  "上课隐藏悬浮层": [
-    0
+  "上课置顶": [
+    1
   ],
   "上课显示倒计条": [
     1
@@ -290,12 +290,6 @@
   "进度条宽度": [
     16
   ],
-  "拖动默认样式": {
-    "left": false,
-    "upper": false,
-    "right": false,
-    "center": false
-  },
   "left上课缩放": [
     0.7
   ],
@@ -310,5 +304,209 @@
   ],
   "center缩放": [
     1
-  ]
+  ],
+  "全局日程": {
+    "上课": "upper_bar",
+    "下课": "upper_table"
+  },
+  "每日日程": {
+    "1": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "2": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "3": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "4": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "5": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "6": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "7": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ]
+  },
+  "单课日程": {
+    "1": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "2": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "3": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "4": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "5": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "6": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ],
+    "7": [
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default",
+      "default"
+    ]
+  }
 }

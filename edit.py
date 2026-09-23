@@ -3,7 +3,26 @@ from tkinter import ttk, Scrollbar, messagebox, simpledialog, Menu
 import json
 import datetime
 
+import positions as P
+
 #row+1为实际行数
+
+
+def _flag_of(config, key):
+    """读布尔型旧键（值可能是 [0]/[1] 或裸 True/False）。"""
+    value = config.get(key, False)
+    if isinstance(value, (list, tuple)):
+        value = value[0] if value else False
+    return bool(value)
+
+
+def _pos_of(config, key):
+    """读旧的位置键，兼容 a/b/c/f/u 与数组写法。"""
+    value = config.get(key, "upper")
+    if isinstance(value, (list, tuple)):
+        value = value[0] if value else "upper"
+    mapping = {"a": "left", "b": "upper", "c": "right", "f": "center", "u": "upper"}
+    return mapping.get(str(value), str(value))
 
 def save_settings(entries):
     """保存参数设置到字典"""
@@ -24,9 +43,14 @@ def save_settings(entries):
     positions = {"上课默认位置", "下课默认位置"}
     for key, entry in entries.items():
         raw = entry.get()
-        if key.startswith("拖入") and key.endswith("使用secondStyle"):
-            dock = key[2 : key.index("时")]
-            config.setdefault("拖动默认样式", {})[dock] = raw == "是"
+        if key in ("全局日程·上课", "全局日程·下课"):
+            style = P.from_label(raw) or P.UPPER_TABLE
+            config.setdefault("全局日程", {})[key.split("·")[1]] = style
+            # 同步旧键，保证旧版 Python / 旧数据仍读得懂
+            on_class = key.endswith("上课")
+            config["上课默认位置" if on_class else "下课默认位置"] = [P.dock_of(style)]
+            config["上课默认使用secondStyle" if on_class else "下课默认使用secondStyle"] = \
+                P.second_style_of(style)
         elif key in ("上课默认使用secondStyle", "下课默认使用secondStyle"):
             config[key] = raw == "是"
         elif key in positions:
@@ -61,8 +85,10 @@ def save_schedule():
         if period!="|":
             # 遍历所有列
             for i in range(7):
-                # 获取下拉框的值
-                value = comboboxes[row_idx+1][i+1].get()
+                widget = comboboxes[row_idx+1][i+1]
+                if widget is None or not hasattr(widget, "get"):
+                    continue
+                value = widget.get()
                 # 添加数据
                 schedule_data[str(i+1)].append(value)
         else:
@@ -98,9 +124,24 @@ def migrate_config(cfg):
     cfg.setdefault("上课提示时长", [6])
     cfg.setdefault("下课提示时长", [6])
     cfg.setdefault("时间偏移（秒）", [0])
-    defaults = cfg.setdefault("拖动默认样式", {})
+    # 需求确认：拖入区域的默认样式不再参与三层体系，直接从配置里去掉
+    cfg.pop("拖动默认样式", None)
     for d in DOCKS:
-        defaults.setdefault(d, False)
+        cfg.pop("拖入%s时使用secondStyle" % d, None)
+    # 三层位置表：①全局由旧键迁移，②每日/③每课缺失时补成"全默认"
+    cfg.setdefault("全局日程", {
+        "上课": P.from_legacy(_pos_of(cfg, "上课默认位置"),
+                             _flag_of(cfg, "上课默认使用secondStyle")),
+        "下课": P.from_legacy(_pos_of(cfg, "下课默认位置"),
+                             _flag_of(cfg, "下课默认使用secondStyle")),
+    })
+    lessons = len(cfg.get("开始时间") or [])
+    for table_key in ("每日日程", "单课日程"):
+        if table_key not in cfg:
+            cfg[table_key] = P.write_table([[P.DEFAULT] * lessons for _ in range(7)],
+                                           lessons)
+        else:
+            cfg[table_key] = P.write_table(P.read_table(cfg[table_key], lessons), lessons)
     old_scale = 1.0
     if "上课放大倍率" in cfg:
         v = cfg["上课放大倍率"]
@@ -180,91 +221,175 @@ def fmt_time(pair):
         return str(pair)
     
 
+_daily_open = False
+_daily_day = 1
+_daily_widgets = []
+
+
+def _daily_style(day, lesson):
+    """②每日里某天某节的形态；没有覆盖时返回 default。"""
+    lessons = len(config.get("开始时间") or [])
+    table = config.get("每日日程") or {}
+    row = P.read_row(table.get(str(day)), lessons)
+    return row[lesson] if 0 <= lesson < len(row) else P.DEFAULT
+
+
+def _set_daily_style(day, lesson, style, label_widget):
+    table = config.setdefault("每日日程", {})
+    lessons = len(config.get("开始时间") or [])
+    row = P.read_row(table.get(str(day)), lessons)
+    if lesson < 0 or lesson >= lessons:
+        return
+    row[lesson] = style
+    table[str(day)] = P.write_row(row, lessons)
+    label_widget.set(P.label_of(style))
+    with open("config.json", "w", encoding="utf-8") as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
+
+
+def _toggle_daily_column():
+    global _daily_open
+    _daily_open = not _daily_open
+    _rebuild_schedule()
+
+
+def _choose_daily_day(day):
+    global _daily_day, _daily_open
+    _daily_day = day
+    _daily_open = True
+    _rebuild_schedule()
+
+
+def _rebuild_schedule():
+    """重建课表网格（②每日那一列开合时也走这里）。"""
+    global comboboxes
+    for widget in _daily_widgets:
+        try:
+            widget.destroy()
+        except Exception:
+            pass
+    _daily_widgets.clear()
+    # 清掉旧网格
+    for row in comboboxes:
+        for widget in row:
+            if widget is not None:
+                try:
+                    widget.destroy()
+                except Exception:
+                    pass
+    comboboxes = [[None for _ in range(len(days) + 2)] for _ in range(len(periods) + 1)]
+
+    label = ttk.Label(scrollable_frame, text=" ", width=10, relief="solid", padding=5)
+    label.grid(row=0, column=0, sticky="nsew")
+    comboboxes[0][0] = label
+    for col, day in enumerate(days):
+        label = ttk.Label(scrollable_frame, text=day, width=10, relief="solid", padding=5)
+        label.grid(row=0, column=col + 1, sticky="nsew")
+        comboboxes[0][col + 1] = label
+
+    # 周日的右边：②每日那一列的开关（默认收起）
+    daily_header = ttk.Label(
+        scrollable_frame,
+        text=("× 周" + P.WEEK_NAMES[_daily_day - 1]) if _daily_open else "每日",
+        width=10, relief="solid", padding=5,
+    )
+    daily_header.grid(row=0, column=8, sticky="nsew")
+    daily_header.bind("<Button-1>", lambda e: _toggle_daily_column() if _daily_open
+                      else _choose_daily_day_menu())
+    _daily_widgets.append(daily_header)
+
+    lesson = -1
+    for row, period in enumerate(periods):
+        if period != "|":
+            lesson += 1
+            period_label = ttk.Label(scrollable_frame, text=period, relief="solid", padding=5)
+            period_label.grid(row=row + 1, column=0, sticky="nsew")
+            period_label.bind("<Button-1>", lambda e, row=row: show_period_menu(e, row))
+            comboboxes[row + 1][0] = period_label
+
+            for col in range(7):
+                combobox = ttk.Combobox(scrollable_frame, values=options,
+                                        state="readonly", width=8)
+                combobox.grid(row=row + 1, column=col + 1, padx=1, pady=1, sticky="nsew")
+                combobox.set(config["日程表"][str(col + 1)][row])
+                comboboxes[row + 1][col + 1] = combobox
+
+            if _daily_open:
+                cell = ttk.Combobox(scrollable_frame, values=P.STYLE_LABELS_WITH_DEFAULT,
+                                    state="readonly", width=8)
+                cell.set(P.label_of(_daily_style(_daily_day, lesson)))
+                cell.grid(row=row + 1, column=8, padx=1, pady=1, sticky="nsew")
+                cell.bind("<<ComboboxSelected>>",
+                          lambda e, w=cell, l=lesson: _set_daily_style(
+                              _daily_day, l, P.STYLES_WITH_DEFAULT[
+                                  P.STYLE_LABELS_WITH_DEFAULT.index(w.get())], w))
+                _daily_widgets.append(cell)
+        else:
+            for col in range(9):
+                sepLine = ttk.Separator(scrollable_frame, orient='horizontal')
+                sepLine.grid(row=row + 1, column=col, columnspan=1, sticky='ew', pady=(10, 10))
+                comboboxes[row + 1][col] = sepLine
+
+
+def _choose_daily_day_menu():
+    win = tk.Toplevel()
+    win.title("②每日：选择要编辑的星期")
+    for i, name in enumerate(P.WEEK_NAMES):
+        ttk.Button(win, text="周" + name, width=10,
+                   command=lambda d=i + 1, w=win: (w.destroy(), _choose_daily_day(d))).pack(
+            padx=12, pady=3)
+
+
 def create_schedule_tab(parent, text):
     global comboboxes, periods, days, scrollable_frame, canvas
     # 创建表格内容
-    num=1
-    periods=[]
+    num = 1
+    periods = []
     days = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
     for i in config["日程表"]["1"]:
-        if i!='|':
+        if i != '|':
             periods.append(str(num))
-            num+=1
+            num += 1
         else:
             periods.append("|")
     options = config["更换选项"]
-    comboboxes = [[None for _ in range(len(days)+1)] for _ in range(len(periods)+1)]
+    comboboxes = [[None for _ in range(len(days) + 2)] for _ in range(len(periods) + 1)]
 
     # 创建外层Frame
     frame = ttk.Frame(parent)
-    
+
     # 创建Canvas和滚动条
     canvas = tk.Canvas(frame)
     scrollbar = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
     scrollable_frame = ttk.Frame(canvas)
-    
+
     # 配置Canvas
     canvas.configure(yscrollcommand=scrollbar.set)
     canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-    
-    # 创建表格标题（横向）
-    label = ttk.Label(scrollable_frame, text=" ", width=10, relief="solid", padding=5)
-    label.grid(row=0, column=0, sticky="nsew")
-    comboboxes[0][0]=label
-    for col, day in enumerate(days):
-        label = ttk.Label(scrollable_frame, text=day, width=10, relief="solid", padding=5)
-        label.grid(row=0, column=col+1, sticky="nsew")
-        comboboxes[0][col+1]=label
-    
-    #创建表格内容
-    for row, period in enumerate(periods):
-        if period!="|":
-            # 行标题（纵向）
-            period_label = ttk.Label(scrollable_frame, text=period, relief="solid", padding=5)
-            period_label.grid(row=row+1, column=0, sticky="nsew")
-            period_label.bind("<Button-1>", lambda e, row=row: show_period_menu(e, row))
-            comboboxes[row+1][0] = period_label
-            
-            # 创建下拉框
-            for col in range(7): #每行创建7个
-                combobox = ttk.Combobox(
-                    scrollable_frame, 
-                    values=options, 
-                    state="readonly", #设置为只读
-                    width=8
-                )
-                combobox.grid(row=row+1, column=col+1, padx=1, pady=1, sticky="nsew")
-                combobox.set(config["日程表"][str(col+1)][row])
-                comboboxes[row+1][col+1] = combobox
-        else:
-            for col in range(8):
-                sepLine = ttk.Separator(scrollable_frame, orient='horizontal')
-                sepLine.grid(row=row+1, column=col, columnspan=1, sticky='ew', pady=(10,10))
-                comboboxes[row+1][col] = sepLine
 
-    
+    _rebuild_schedule()
+
     # 配置网格权重
-    for i in range(8):
+    for i in range(9):
         scrollable_frame.grid_columnconfigure(i, weight=1)
     for i in range(8):
         scrollable_frame.grid_rowconfigure(i, weight=1)
-    
+
     # 布局Canvas和滚动条
     canvas.grid(row=0, column=0, sticky="nsew")
     scrollbar.grid(row=0, column=1, sticky="ns")
-    
+
     # 配置Frame权重
     frame.grid_rowconfigure(0, weight=1)
     frame.grid_columnconfigure(0, weight=1)
 
-    
     # 更新可滚动区域
     scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
 
     #创建保存按钮
-    save_button = ttk.Button(frame, text="保存", command=save_schedule,width=15)
+    save_button = ttk.Button(frame, text="保存", command=save_schedule, width=15)
     save_button.grid(row=1, column=0, padx=10, pady=10, sticky="se")
-    
+
     return frame
 
 
@@ -290,120 +415,50 @@ def show_period_menu(event, row_index):
     menu.post(event.x_root, event.y_root)
 
 
+def _renumber_periods():
+    """按 periods 里的课程行重新编号。"""
+    num = 1
+    for i, item in enumerate(periods):
+        if item == "|":
+            continue
+        periods[i] = str(num)
+        num += 1
+
+
 def add_separator(row_index):
-    """在指定行下方添加分割线"""
-    global comboboxes,scrollable_frame,periods,days
-
-    new_period=comboboxes[row_index+1][0]["text"]
-    seps=[]
-    for col in range(8):
-        sepLine = ttk.Separator(scrollable_frame, orient='horizontal')
-        sepLine.grid(row=row_index+2, column=col, columnspan=1, sticky='ew', pady=(10,10))
-        seps.append(sepLine)
-    comboboxes.insert(row_index+2,seps)
-    periods.insert(row_index+1,"|")
-
-    # 调整下方所有行的位置
-    for rowi in range(row_index+3, len(periods)+1):
-        for i in range(8):
-            comboboxes[rowi][i].grid(row=rowi)
-    
-    
-    # 更新滚动区域
-    canvas.configure(scrollregion=canvas.bbox("all"))
-    messagebox.showinfo("添加成功", "已在第"+new_period+"节下方添加新分割线")
+    """在指定行下方添加分割线。"""
+    periods.insert(row_index + 1, "|")
+    _rebuild_schedule()
+    messagebox.showinfo("添加成功", "已在下发添加新分割线")
 
 
 def del_separator(row_index):
-    """在指定行下方删除分割线"""
-    global comboboxes,scrollable_frame,periods,days
-
-    new_period=comboboxes[row_index+1][0]["text"]
-    for col in range(8):
-        sepLine = comboboxes[row_index+2][col]
-        sepLine.destroy()
-    del(comboboxes[row_index+2])
-    del(periods[row_index+1])
-    
-    
-    # 更新滚动区域
-    canvas.configure(scrollregion=canvas.bbox("all"))
-    messagebox.showinfo("添加成功", "已在第"+new_period+"节下方删除分割线")
+    """删除指定行下方的分割线。"""
+    if row_index + 1 < len(periods) and periods[row_index + 1] == "|":
+        del periods[row_index + 1]
+        _renumber_periods()
+        _rebuild_schedule()
+    else:
+        messagebox.showwarning("无法删除", "这一行下方不是分割线")
 
 
 def add_course(row_index):
-    """在指定行下方添加新课程行"""
-    global periods, comboboxes
-    
-    new_period=comboboxes[row_index+1][0]["text"]
-    for i in range(row_index+1,len(periods)):
-        if periods[i]!="|":
-            periods[i]=str(int(periods[i])+1)
-            comboboxes[i+1][0]["text"]=periods[i]
-            comboboxes[i+1][0].unbind('<Button-1>')
-            comboboxes[i+1][0].bind("<Button-1>", lambda e, row=i+1: show_period_menu(e, row))
-    periods.insert(row_index+1,str(int(new_period)+1))
-    
-    # 在二维列表中添加新行
-    new_combobox_row = []
-    
-    # 创建新行的行标题（带右键菜单）
-    period_label = ttk.Label(
-        scrollable_frame, 
-        text=str(int(new_period)+1), 
-        relief="solid", 
-        padding=5,
-    )
-    period_label.grid(row=row_index+2, column=0, sticky="nsew")
-    period_label.bind("<Button-1>", lambda e, row=row_index+2: show_period_menu(e, row))
-    new_combobox_row.append(period_label)
-    
-    # 创建新行的下拉框
-    for col in range(len(days)):
-        combobox = ttk.Combobox(
-            scrollable_frame, 
-            values=config["更换选项"], 
-            state="readonly",
-            width=8
-        )
-        combobox.set('无')
-        combobox.grid(row=row_index+2, column=col+1, padx=1, pady=1, sticky="nsew")
-        new_combobox_row.append(combobox)
-    comboboxes.insert(row_index+2, new_combobox_row)
-        
-    # 调整下方所有行的位置
-    for rowi in range(row_index+3, len(periods)+1):
-        for i in range(8):
-            comboboxes[rowi][i].grid(row=rowi)
-    
-    # 更新滚动区域
-    canvas.configure(scrollregion=canvas.bbox("all"))
-    messagebox.showinfo("添加成功", "已在第"+new_period+"节下方添加新课程行")
+    """在指定行下方添加新课程行。"""
+    periods.insert(row_index + 1, "")
+    _renumber_periods()
+    _rebuild_schedule()
+    messagebox.showinfo("添加成功", "已添加新的课程行")
 
 
 def del_course(row_index):
-    """在指定行下方删除课程行"""
-    global comboboxes,scrollable_frame,periods,days
-
-    new_period=comboboxes[row_index+1][0]["text"]
-    for i in range(row_index+1,len(periods)):
-        if periods[i]!="|":
-            periods[i]=str(int(periods[i])-1)
-            comboboxes[i+1][0]["text"]=periods[i]
-            comboboxes[i+1][0].unbind('<Button-1>')
-            comboboxes[i+1][0].bind("<Button-1>", lambda e, row=i-1: show_period_menu(e, row))
-
-    # 删除指定行的下拉框和行标题
-    for col in range(8):
-        combobox = comboboxes[row_index+1][col]
-        combobox.destroy()
-    del(comboboxes[row_index+1])
-    del(periods[row_index])
-    
-    # 更新滚动区域
-    canvas.configure(scrollregion=canvas.bbox("all"))
-    messagebox.showinfo("添加成功", "已删除第"+new_period+"节课程行")
-
+    """删除指定课程行。"""
+    if len([p for p in periods if p != "|"]) <= 1:
+        messagebox.showwarning("无法删除", "至少保留一行")
+        return
+    del periods[row_index]
+    _renumber_periods()
+    _rebuild_schedule()
+    messagebox.showinfo("添加成功", "已删除该课程行")
 
 def create_time_settings(parent):
     """时间设置：支持成对插入（同时写入课表一整行“无”）与成对删除。"""
@@ -573,17 +628,11 @@ def create_parameter_settings(parent):
             ("upper下课缩放", "上方·课间/放学缩放", "number"),
             ("center缩放", "居中窗口缩放", "number"),
         ]),
-        ("停靠位置", [
-            ("上课默认位置", "上课时停靠", "dock"),
-            ("下课默认位置", "课间/放学时停靠", "dock"),
-            ("上课默认使用secondStyle", "上课时使用第二样式", "bool"),
-            ("下课默认使用secondStyle", "课间/放学时使用第二样式", "bool"),
-        ]),
-        ("拖入区域时默认使用的样式", [
-            ("拖入left时使用secondStyle", "拖到左侧时默认第二样式", "bool"),
-            ("拖入upper时使用secondStyle", "拖到上方时默认第二样式", "bool"),
-            ("拖入right时使用secondStyle", "拖到右侧时默认第二样式", "bool"),
-            ("拖入center时使用secondStyle", "拖到居中时默认第二样式", "bool"),
+        # ①全局：替代原来的"上课/下课默认位置 + 使用secondStyle"，
+        # 也取代"拖入区域时默认使用的样式"（新三层不再依赖它）
+        ("① 全局（未设置②每日/③每课时使用）", [
+            ("全局日程·上课", "上课时形态", "style"),
+            ("全局日程·下课", "课间/放学时形态", "style"),
         ]),
         ("提示文字", [
             ("开始提示", "上课前提示文字", "text"),
@@ -615,13 +664,27 @@ def create_parameter_settings(parent):
                 row=grid_row, column=col, padx=5, pady=2, sticky="e"
             )
             if kind == "bool":
-                if key.startswith("拖入") and key.endswith("使用secondStyle"):
-                    dock = key[2 : key.index("时")]
-                    current = config.get("拖动默认样式", {}).get(dock, False)
-                else:
-                    current = value_of(key)
+                current = value_of(key)
                 cb = ttk.Combobox(frame, width=5, state="readonly", values=["否", "是"])
                 cb.set("是" if current else "否")
+                cb.grid(row=grid_row, column=col + 1, padx=5, pady=2, sticky="w")
+                entries[key] = cb
+            elif kind == "style":
+                # ①全局：没有"全局日程"时由旧的默认位置 + secondStyle 迁移
+                on_class = key.endswith("上课")
+                global_cfg = config.get("全局日程")
+                if isinstance(global_cfg, dict) and key.split("·")[1] in global_cfg:
+                    current = P.normalize(global_cfg[key.split("·")[1]])
+                else:
+                    current = P.from_legacy(
+                        _pos_of(config, "上课默认位置" if on_class else "下课默认位置"),
+                        _flag_of(config,
+                                 "上课默认使用secondStyle" if on_class
+                                 else "下课默认使用secondStyle"),
+                    )
+                cb = ttk.Combobox(frame, width=8, state="readonly",
+                                  values=P.STYLE_LABELS)
+                cb.set(P.label_of(current))
                 cb.grid(row=grid_row, column=col + 1, padx=5, pady=2, sticky="w")
                 entries[key] = cb
             elif kind == "dock":
@@ -651,9 +714,55 @@ def create_parameter_settings(parent):
         command=lambda: save_settings(entries),
         width=15,
     ).grid(row=grid_row, column=3, padx=10, pady=10, sticky="se")
+    ttk.Button(
+        frame,
+        text="③每课（文本框整表编辑）",
+        command=show_per_lesson_editor,
+        width=22,
+    ).grid(row=grid_row + 1, column=0, columnspan=3, padx=10, pady=(0, 10), sticky="w")
     for i in range(4):
         frame.columnconfigure(i, weight=1)
     return outer
+
+
+def show_per_lesson_editor():
+    """③每课：文本框整表编辑（不做图形界面）。每行一天，逗号分隔，用内部值。"""
+    lessons = len(config.get("开始时间") or [])
+    rows = per_lesson_rows()
+    win = tk.Toplevel()
+    win.title("③每课（每行一天，逗号分隔；默认 = 跟随②每日）")
+    win.geometry("720x320")
+    text = tk.Text(win, wrap="word")
+    for day in range(7):
+        row = rows[day] if day < len(rows) else []
+        values = [row[i] if i < len(row) else P.DEFAULT for i in range(lessons)]
+        text.insert("end", "周%s:%s\n" % (P.WEEK_NAMES[day], ",".join(values)))
+    text.pack(fill="both", expand=True, padx=8, pady=8)
+
+    def apply():
+        for line in text.get("1.0", "end").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if ":" in line:
+                day_text, rest = line.split(":", 1)
+            elif "：" in line:
+                day_text, rest = line.split("：", 1)
+            else:
+                continue
+            day_text = day_text.strip().replace("周", "")
+            if day_text not in P.WEEK_NAMES:
+                continue
+            day = P.WEEK_NAMES.index(day_text) + 1
+            parts = [p.strip() for p in rest.replace("，", ",").split(",")]
+            row = P.read_row(parts, lessons)
+            config.setdefault("单课日程", {})[str(day)] = P.write_row(row, lessons)
+        with open("config.json", "w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+        messagebox.showinfo("保存成功", "③每课已保存")
+        win.destroy()
+
+    ttk.Button(win, text="保存", command=apply, width=15).pack(pady=(0, 8))
 
 
 def create_settings_tab(parent):
@@ -829,6 +938,61 @@ def load_schedule_for_date(date_str):
     return base_schedule
 
 
+def load_positions_for_date(date_str):
+    """该日期记录里的位置行；没有记录或没有第 3 项时返回 None。"""
+    try:
+        with open('data.json', 'r', encoding='utf-8') as f:
+            class_change = json.load(f)
+    except Exception:
+        return None
+    for record in class_change:
+        if isinstance(record, (list, tuple)) and len(record) > 2 and record[0] == date_str:
+            lessons = len(config.get("开始时间") or [])
+            return P.read_row(record[2], lessons)
+    return None
+
+
+def global_style(which):
+    """①全局：优先读"全局日程"，缺失时由旧的默认位置 + secondStyle 迁移。"""
+    global_cfg = config.get("全局日程") or {}
+    if which in global_cfg:
+        return P.normalize(global_cfg[which])
+    on_class = which == "上课"
+    return P.from_legacy(_pos_of(config, "上课默认位置" if on_class else "下课默认位置"),
+                         _flag_of(config,
+                                  "上课默认使用secondStyle" if on_class
+                                  else "下课默认使用secondStyle"))
+
+
+def _lesson_rows(table_key):
+    lessons = len(config.get("开始时间") or [])
+    return P.read_table(config.get(table_key), lessons)
+
+
+def daily_style_rows():
+    """②每日：7 天 × 课节数。"""
+    return _lesson_rows("每日日程")
+
+
+def per_lesson_rows():
+    """③每课：7 天 × 课节数。"""
+    return _lesson_rows("单课日程")
+
+
+def token_to_lesson(tokens, token_index):
+    """token 下标 → 第几节课（0 起）；特殊 token 返回 None。"""
+    seen = -1
+    for i, token in enumerate(tokens):
+        if token in SPECIAL_TEXT:
+            continue
+        seen += 1
+        if i == token_index:
+            return seen
+    return None
+
+
+
+
 def update_schedule_display(side):
     """更新指定侧的课表显示"""
     try:
@@ -906,9 +1070,23 @@ def swap_selected_courses():
             return
         
         # 对调选中的课程
+        # 位置也要跟着课走：写成解析后的真实值，不写 "default"
+        left_positions = load_positions_for_date(left_date)
+        right_positions = load_positions_for_date(right_date)
+        lessons = len(config.get("开始时间") or [])
+        left_day = datetime.datetime.strptime(left_date, '%Y-%m-%d').isoweekday()
+        right_day = datetime.datetime.strptime(right_date, '%Y-%m-%d').isoweekday()
+        left_effective = [P.resolve(left_positions, per_lesson_rows(), daily_style_rows(),
+                                    i, left_day, False, global_style("上课"),
+                                    global_style("下课")) for i in range(lessons)]
+        right_effective = [P.resolve(right_positions, per_lesson_rows(), daily_style_rows(),
+                                     i, right_day, False, global_style("上课"),
+                                     global_style("下课")) for i in range(lessons)]
+
         if left_selected == "all" and right_selected == "all":
             # 对调整天的课程
             left_schedule, right_schedule = right_schedule, left_schedule
+            left_effective, right_effective = right_effective, left_effective
         elif left_selected == "all":
             # 左侧选择全部，右侧选择特定课程
             messagebox.showwarning("警告", "不能同时选择\"全部\"和特定课程")
@@ -924,6 +1102,12 @@ def swap_selected_courses():
             
             if left_idx < len(left_schedule) and right_idx < len(right_schedule):
                 left_schedule[left_idx], right_schedule[right_idx] = right_schedule[right_idx], left_schedule[left_idx]
+                li = token_to_lesson(left_schedule, left_idx)
+                ri = token_to_lesson(right_schedule, right_idx)
+                if li is not None and ri is not None:
+                    tmp_style = left_effective[li]
+                    left_effective[li] = right_effective[ri]
+                    right_effective[ri] = tmp_style
             else:
                 messagebox.showerror("错误", "课程索引超出范围")
                 return
@@ -940,8 +1124,8 @@ def swap_selected_courses():
         class_change = [record for record in class_change if record[0] not in [left_date, right_date]]
         
         # 添加新的对调记录
-        class_change.append([left_date, left_schedule])
-        class_change.append([right_date, right_schedule])
+        class_change.append([left_date, left_schedule, left_effective])
+        class_change.append([right_date, right_schedule, right_effective])
         
         # 写回文件
         with open('data.json', 'w', encoding='utf-8') as f:
