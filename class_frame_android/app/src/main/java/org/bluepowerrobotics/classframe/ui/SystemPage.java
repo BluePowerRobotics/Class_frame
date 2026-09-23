@@ -674,6 +674,49 @@ public class SystemPage implements MainActivity.Page {
         syncStatus.setTextColor(Color.DKGRAY);
         root.addView(syncStatus, Ui.block(activity));
 
+        // ---- 课前自检（兜底闹钟）----
+        root.addView(Ui.title(activity, "课前自检"));
+        LinearLayout checkRow = Ui.row(activity);
+        final TextView checkValue = Ui.label(activity, "首节课开始前 "
+                + Prefs.preClassWakeMinutes(activity) + " 分钟自检一次");
+        checkRow.addView(checkValue);
+        checkRow.addView(Ui.button(activity, "设置", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                final EditText input = new EditText(activity);
+                input.setInputType(InputType.TYPE_CLASS_NUMBER);
+                input.setText(String.valueOf(Prefs.preClassWakeMinutes(activity)));
+                new AlertDialog.Builder(activity)
+                        .setTitle("课前自检提前分钟数（0 表示关闭）")
+                        .setView(input)
+                        .setPositiveButton("保存", new android.content.DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(android.content.DialogInterface dialog, int which) {
+                                int value;
+                                try {
+                                    value = Integer.parseInt(input.getText().toString().trim());
+                                } catch (Exception e) {
+                                    return;
+                                }
+                                Prefs.setPreClassWakeMinutes(activity, value);
+                                checkValue.setText("首节课开始前 "
+                                        + Prefs.preClassWakeMinutes(activity) + " 分钟自检一次");
+                                OverlayService.refresh(activity);
+                                refresh();
+                            }
+                        })
+                        .setNegativeButton("取消", null)
+                        .show();
+            }
+        }));
+        root.addView(checkRow, Ui.block(activity));
+        TextView checkHint = new TextView(activity);
+        checkHint.setTextSize(11);
+        checkHint.setTextColor(Color.DKGRAY);
+        checkHint.setText("双通道设备上 Android 侧可能被冻结，这个自检闹钟会在课前再醒一次并重新排定显示；"
+                + "它按校正后的时间计算，改过时间偏移后会自动重排。");
+        root.addView(checkHint, Ui.block(activity));
+
         // ---- 双向联动 ----
         offsetInput.addTextChangedListener(new android.text.TextWatcher() {
             @Override

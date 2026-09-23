@@ -25,6 +25,7 @@ import org.bluepowerrobotics.classframe.data.Config;
 import org.bluepowerrobotics.classframe.data.ConfigRepository;
 import org.bluepowerrobotics.classframe.data.Logs;
 import org.bluepowerrobotics.classframe.data.Prefs;
+import org.bluepowerrobotics.classframe.data.TimeSync;
 import org.bluepowerrobotics.classframe.ui.MainActivity;
 
 import java.util.Calendar;
@@ -47,6 +48,8 @@ public class OverlayService extends Service {
     private static final String CHANNEL_ID = "overlay";
     private static final int NOTIFICATION_ID = 1001;
     private static final int ALARM_REQUEST_CODE = 2001;
+    /** 课前自检闹钟用单独的 requestCode，避免和主触发互相覆盖。 */
+    private static final int ALARM_REQUEST_CODE_WATCHDOG = 2002;
     /** 心跳里每隔多少秒重新核对一次调度（兜底，正常由定时唤醒精确触发）。 */
     private static final int SCHEDULE_RECHECK_TICKS = 30;
 
@@ -56,6 +59,8 @@ public class OverlayService extends Service {
     private boolean screenOn = true;
     private int tickCount;
     private Boolean lastVisible;
+    private int lastArmedCode;
+    private int lastLoggedOffset = Integer.MIN_VALUE;
     /**
      * 悬浮权限的授予有时不会立刻对已运行的进程可见（设置页返回、ContentProvider 传播有延迟），
      * 也可能出现"权限给了但服务早就放弃过"。这里记住最近一次失败，之后自愈重试。
@@ -294,13 +299,23 @@ public class OverlayService extends Service {
         appNow.add(Calendar.SECOND, config.timeOffsetSeconds);
         ScheduleEngine.Plan plan;
         try {
-            plan = ScheduleEngine.compute(config, appNow, config.timeOffsetSeconds);
+            plan = ScheduleEngine.compute(config, appNow, config.timeOffsetSeconds,
+                    Prefs.preClassWakeMinutes(this));
         } catch (Exception e) {
             Logs.e(TAG, "schedule: compute failed", e);
             return;
         }
 
         OverlayController controller = OverlayController.get(this);
+        // 唤醒链路是"闹钟 → 接收器 → 服务"，用户能看到的历史全在日志里，
+        // 所以每次时间参数变化都留一行，便于判断闹钟到底有没有穿透。
+        if (config.timeOffsetSeconds != lastLoggedOffset) {
+            lastLoggedOffset = config.timeOffsetSeconds;
+            Logs.i(TAG, "时间参数变化: 设备 " + TimeSync.format(System.currentTimeMillis(),
+                    TimeSync.zone(this)) + " → 校正后 " + TimeSync.format(
+                    System.currentTimeMillis() + config.timeOffsetSeconds * 1000L,
+                    TimeSync.zone(this)) + "（偏移 " + config.timeOffsetSeconds + " 秒）");
+        }
         if (plan.hidden) {
             Logs.i(TAG, "schedule: hidden -> hide");
             stopTicker();
@@ -320,35 +335,56 @@ public class OverlayService extends Service {
 
     private void scheduleWake(ScheduleEngine.Plan plan) {
         handler.removeCallbacks(wakeRunnable);
-        if (plan.triggerAtMillis <= 0) return;
 
-        long delay = plan.triggerAtMillis - System.currentTimeMillis();
-        if (delay > 0) {
-            // 进程存活时用 Handler 精确触发（开销最低）
-            handler.postDelayed(wakeRunnable, delay + 50);
-        } else {
-            // 已经过点：下一次心跳会重新评估
-            handler.post(wakeRunnable);
+        if (plan.triggerAtMillis > 0) {
+            long delay = plan.triggerAtMillis - System.currentTimeMillis();
+            if (delay > 0) {
+                // 进程存活时用 Handler 精确触发（开销最低）
+                handler.postDelayed(wakeRunnable, delay + 50);
+            } else {
+                // 已经过点：下一次心跳会重新评估
+                handler.post(wakeRunnable);
+            }
         }
 
+        // 主触发（到点显示 / 到点隐藏）
+        boolean armed = armAlarm(plan.triggerAtMillis, ALARM_REQUEST_CODE, false);
+
+        // 课前自检：只在主触发会走"显示"这条路时才需要
+        if (plan.triggerShows && plan.watchdogAtMillis > 0
+                && (plan.triggerAtMillis <= 0 || plan.watchdogAtMillis < plan.triggerAtMillis)) {
+            armed |= armAlarm(plan.watchdogAtMillis, ALARM_REQUEST_CODE_WATCHDOG, true);
+        }
+        if (!armed) cancelWake();
+    }
+
+    /** 返回是否真的排上了闹钟。 */
+    private boolean armAlarm(long atMillis, int requestCode, boolean watchdog) {
+        if (atMillis <= 0) return false;
         AlarmManager manager = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
-        if (manager == null) return;
-        PendingIntent pending = wakePendingIntent();
+        if (manager == null) return false;
+        PendingIntent pending = wakePendingIntent(requestCode);
         try {
             manager.cancel(pending);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
                     && !manager.canScheduleExactAlarms()) {
                 // 未授予"闹钟与提醒"权限时退化为非精确闹钟，仍能在 Doze 中唤醒
-                manager.setAndAllowWhileIdle(
-                        AlarmManager.RTC_WAKEUP, plan.triggerAtMillis, pending);
+                manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMillis, pending);
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                manager.setExactAndAllowWhileIdle(
-                        AlarmManager.RTC_WAKEUP, plan.triggerAtMillis, pending);
+                manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMillis, pending);
             } else {
-                manager.setExact(AlarmManager.RTC_WAKEUP, plan.triggerAtMillis, pending);
+                manager.setExact(AlarmManager.RTC_WAKEUP, atMillis, pending);
             }
+            lastArmedCode = requestCode;
+            Logs.i(TAG, "闹钟已排" + (watchdog ? "（课前自检）" : "") + ": "
+                    + new java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.US)
+                    .format(new java.util.Date(atMillis))
+                    + " 距现在 " + Math.round((atMillis - System.currentTimeMillis()) / 1000.0)
+                    + " 秒");
+            return true;
         } catch (Exception e) {
             Logs.w(TAG, "schedule: alarm failed: " + e);
+            return false;
         }
     }
 
@@ -356,20 +392,23 @@ public class OverlayService extends Service {
         handler.removeCallbacks(wakeRunnable);
         AlarmManager manager = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
         if (manager != null) {
-            try {
-                manager.cancel(wakePendingIntent());
-            } catch (Exception ignored) {
+            for (int code : new int[]{ALARM_REQUEST_CODE, ALARM_REQUEST_CODE_WATCHDOG}) {
+                try {
+                    manager.cancel(wakePendingIntent(code));
+                } catch (Exception ignored) {
+                }
             }
         }
+        lastArmedCode = 0;
     }
 
-    private PendingIntent wakePendingIntent() {
+    private PendingIntent wakePendingIntent(int requestCode) {
         Intent intent = new Intent(this, ScheduleReceiver.class).setAction(ScheduleReceiver.ACTION_WAKE);
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             flags |= PendingIntent.FLAG_IMMUTABLE;
         }
-        return PendingIntent.getBroadcast(this, ALARM_REQUEST_CODE, intent, flags);
+        return PendingIntent.getBroadcast(this, requestCode, intent, flags);
     }
 
     // ------------------------------------------------------------ 心跳与帧

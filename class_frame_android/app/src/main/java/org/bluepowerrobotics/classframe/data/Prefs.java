@@ -20,6 +20,7 @@ public final class Prefs {
     public static final String KEY_NTP_HOST = "ntp_host";
     public static final String KEY_HTTP_HOST = "http_time_host";
     public static final String KEY_HTTP_PORT = "http_time_port";
+    public static final String KEY_PRE_CLASS_WAKE_MINUTES = "pre_class_wake_minutes";
 
     public static final boolean DEFAULT_BOOT_AUTOSTART = false;
     public static final boolean DEFAULT_OVERLAY_ENABLED = true;
@@ -35,6 +36,8 @@ public final class Prefs {
     public static final String DEFAULT_NTP_HOST = "ntp.aliyun.com";
     public static final String DEFAULT_HTTP_HOST = "www.baidu.com";
     public static final int DEFAULT_HTTP_PORT = 80;
+    /** 首节课开始前多少分钟做一次自检（兜底闹钟）。 */
+    public static final int DEFAULT_PRE_CLASS_WAKE_MINUTES = 1;
 
     private Prefs() {
     }
@@ -169,5 +172,19 @@ public final class Prefs {
     public static void setHttpTimePort(Context context, int value) {
         sp(context).edit().putInt(KEY_HTTP_PORT,
                 Math.max(1, Math.min(65535, value))).apply();
+    }
+
+    /**
+     * 课前自检：首节课开始前几分钟强制醒来一次重新评估。
+     * 目的是兜底"Android 侧被冻结 / 自启动被拦"导致闹钟整个丢失的情况，
+     * 0 表示只靠课表调度、不额外排自检。
+     */
+    public static int preClassWakeMinutes(Context context) {
+        return sp(context).getInt(KEY_PRE_CLASS_WAKE_MINUTES, DEFAULT_PRE_CLASS_WAKE_MINUTES);
+    }
+
+    public static void setPreClassWakeMinutes(Context context, int value) {
+        sp(context).edit().putInt(KEY_PRE_CLASS_WAKE_MINUTES,
+                Math.max(0, Math.min(120, value))).apply();
     }
 }

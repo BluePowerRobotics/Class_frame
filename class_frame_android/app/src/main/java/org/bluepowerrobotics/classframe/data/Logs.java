@@ -320,7 +320,12 @@ public final class Logs {
     }
 
     public static File file(Context context) {
-        init(context);
+        if (sContext == null) {
+            // 极少数情况：进程刚被广播唤醒、Application 还没走到这里
+            init(context.getApplicationContext());
+        } else {
+            init(sContext);
+        }
         return sFile;
     }
 

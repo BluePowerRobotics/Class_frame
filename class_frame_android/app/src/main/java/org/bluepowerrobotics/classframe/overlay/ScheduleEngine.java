@@ -27,20 +27,36 @@ public final class ScheduleEngine {
         public long triggerAtMillis;
         /** true = 到点显示，false = 到点隐藏。 */
         public boolean triggerShows;
+        /**
+         * 看门狗：在"课前自检点"之后一次自检，用来兜底"闹钟被 ROM 拦掉/唤醒失败"。
+         * 它不决定显示或隐藏，只负责把状态重新算一遍。
+         */
+        public long watchdogAtMillis;
 
         public String describe() {
-            if (triggerAtMillis <= 0) return (hidden ? "hidden" : "shown") + " (no trigger)";
             SimpleDateFormat fmt = new SimpleDateFormat("MM-dd HH:mm:ss", Locale.US);
-            return (hidden ? "hidden" : "shown")
-                    + " -> " + (triggerShows ? "show" : "hide")
-                    + " @ " + fmt.format(new java.util.Date(triggerAtMillis));
+            StringBuilder sb = new StringBuilder(hidden ? "hidden" : "shown");
+            if (triggerAtMillis > 0) {
+                sb.append(" -> ").append(triggerShows ? "show" : "hide")
+                        .append(" @ ").append(fmt.format(new java.util.Date(triggerAtMillis)));
+            } else {
+                sb.append(" (no trigger)");
+            }
+            if (watchdogAtMillis > 0) {
+                sb.append(" | 自检 @ ").append(fmt.format(new java.util.Date(watchdogAtMillis)));
+            }
+            return sb.toString();
         }
     }
 
     private ScheduleEngine() {
     }
 
-    public static Plan compute(Config config, Calendar appNow, int offsetSeconds) {
+    /**
+     * @param preClassWakeMinutes 首节课开始前多少分钟做一次自检；<=0 表示不排自检
+     */
+    public static Plan compute(Config config, Calendar appNow, int offsetSeconds,
+                               int preClassWakeMinutes) {
         Plan plan = new Plan();
         List<Integer> starts = config.starts;
         List<Integer> ends = config.ends;
@@ -54,9 +70,23 @@ public final class ScheduleEngine {
         setMinutesOfDay(showToday, starts.get(0));
         showToday.add(Calendar.HOUR_OF_DAY, -1);
 
+        // 课前自检点（当天首节课）
+        Calendar checkToday = (Calendar) appNow.clone();
+        setMinutesOfDay(checkToday, starts.get(0));
+        checkToday.add(Calendar.MINUTE, -Math.max(0, preClassWakeMinutes));
+
         Calendar hideToday = (Calendar) appNow.clone();
         setMinutesOfDay(hideToday, ends.get(lessons - 1));
         hideToday.add(Calendar.MINUTE, 10);
+
+        long nowReal = appNow.getTimeInMillis() - offsetSeconds * 1000L;
+
+        // 自检点：必须晚于"显示"时刻，否则会被当成又一次显示触发。
+        Calendar nextCheck = appNow.before(checkToday) ? checkToday : nextDay(checkToday, appNow);
+        if (nextCheck.before(showToday)) nextCheck = showToday;
+        long checkReal = nextCheck.getTimeInMillis() - offsetSeconds * 1000L;
+        if (checkReal < nowReal) checkReal = nowReal + 60_000L;
+        if (preClassWakeMinutes > 0) plan.watchdogAtMillis = checkReal + 60_000L;
 
         if (appNow.before(showToday)) {
             // 凌晨：仍处在前一天的隐藏期，等到今天课前 1 小时
@@ -79,6 +109,15 @@ public final class ScheduleEngine {
             plan.triggerAtMillis = showTomorrow.getTimeInMillis() - offsetSeconds * 1000L;
         }
         return plan;
+    }
+
+    /** 把时刻推到"今天或明天的同一时刻"，用于已经过点的情况。 */
+    private static Calendar nextDay(Calendar template, Calendar appNow) {
+        Calendar result = (Calendar) template.clone();
+        while (!result.after(appNow)) {
+            result.add(Calendar.DAY_OF_MONTH, 1);
+        }
+        return result;
     }
 
     private static void setMinutesOfDay(Calendar calendar, int minutesOfDay) {
