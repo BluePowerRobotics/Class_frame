@@ -398,7 +398,7 @@ class calendar:
         self.lesson_count = min(len(self.on), len(self.off))
         self.global_on = P.from_legacy(self.onclass_default_pos, self.onclass_second_style)
         self.global_off = P.from_legacy(self.offclass_default_pos, self.offclass_second_style)
-        self.daily_schedule = P.read_table(cfg.get("每日日程"), self.lesson_count)
+        self.daily_schedule = P.read_daily(cfg.get("每日日程"), self.lesson_count)
         self.per_lesson_schedule = P.read_table(cfg.get("单课日程"), self.lesson_count)
         self.prompt_duration = max(1, int(_num(cfg.get("上课提示时长", [6])[0], 6)))
         self.off_prompt_duration = max(1, int(_num(cfg.get("下课提示时长", [6])[0], 6)))
@@ -557,13 +557,19 @@ class calendar:
         """写 config 的②每日或③每课，只动一格。"""
         if lesson < 0 or lesson >= self.lesson_count:
             return
-        table = self.config.setdefault(table_key, {})
-        row = P.read_row(table.get(str(day)), self.lesson_count)
-        row[lesson] = style
-        table[str(day)] = P.write_row(row, self.lesson_count)
+        if table_key == "每日日程":
+            # ②每日只有一行，各星期共用
+            row = P.read_daily(self.config.get(table_key), self.lesson_count)
+            row[lesson] = style
+            self.config[table_key] = P.write_daily(row, self.lesson_count)
+        else:
+            table = self.config.setdefault(table_key, {})
+            row = P.read_row(table.get(str(day)), self.lesson_count)
+            row[lesson] = style
+            table[str(day)] = P.write_row(row, self.lesson_count)
         self._save_config()
         if table_key == "每日日程":
-            self.daily_schedule = P.read_table(self.config.get("每日日程"), self.lesson_count)
+            self.daily_schedule = P.read_daily(self.config.get("每日日程"), self.lesson_count)
         else:
             self.per_lesson_schedule = P.read_table(self.config.get("单课日程"),
                                                     self.lesson_count)

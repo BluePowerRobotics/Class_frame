@@ -56,8 +56,8 @@ public final class Config {
     public String globalOn = Positions.UPPER_TABLE;
     /** ①全局：课间/放学用的形态。 */
     public String globalOff = Positions.UPPER_TABLE;
-    /** ②每日：7 天 × 课节数。 */
-    public String[][] dailySchedule = new String[7][];
+    /** ②每日：只有一行（各星期共用），长度 = 课节数。 */
+    public String[] dailySchedule = new String[0];
     /** ③每课：7 天 × 课节数。 */
     public String[][] perLessonSchedule = new String[7][];
 
@@ -124,7 +124,7 @@ public final class Config {
         c.globalOn = Positions.fromLegacy(c.onDefaultDock, c.onDefaultSecondStyle);
         c.globalOff = Positions.fromLegacy(c.offDefaultDock, c.offDefaultSecondStyle);
         int lessons = c.lessonCount();
-        c.dailySchedule = Positions.readTable(cfg.opt("每日日程"), lessons);
+        c.dailySchedule = Positions.readDaily(cfg.opt("每日日程"), lessons);
         c.perLessonSchedule = Positions.readTable(cfg.opt("单课日程"), lessons);
         return c;
     }
@@ -145,6 +145,17 @@ public final class Config {
                     cfg.put(pair[1], new JSONArray().put(Json.num(cfg.opt(pair[0]), 1) == 0 ? 1 : 0));
                 }
                 cfg.remove(pair[0]);
+            }
+        }
+
+        // ②每日从早期的 7×N 表压成"各星期共用"的一行；③每课仍是 7×N
+        if (cfg.has("每日日程")) {
+            Object daily = cfg.opt("每日日程");
+            if (daily instanceof JSONObject) {
+                int lessons = cfg.optJSONArray("开始时间") == null
+                        ? 0 : cfg.optJSONArray("开始时间").length();
+                cfg.put("每日日程",
+                        Positions.writeDaily(Positions.readDaily(daily, lessons), lessons));
             }
         }
 

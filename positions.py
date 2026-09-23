@@ -175,6 +175,27 @@ def write_table(table, lessons):
     return result
 
 
+def read_daily(source, lessons):
+    """读②每日：它只有一行（各星期共用），长度为课节数。
+
+    兼容早期的 7×N 写法：七行内容一致就压成一行；不一致时取周一，
+    差异内容应挪到③每课。
+    """
+    if isinstance(source, dict):
+        first = read_row(source.get("1"), lessons)
+        for day in range(2, 8):
+            other = read_row(source.get(str(day)), lessons)
+            if first != other:
+                return first
+        return first
+    return read_row(source, lessons)
+
+
+def write_daily(row, lessons):
+    """写②每日：一行，长度为课节数。"""
+    return write_row(row, lessons)
+
+
 def lookup(table, day, lesson):
     if not table or day < 1 or day > len(table):
         return DEFAULT
@@ -191,7 +212,7 @@ def resolve(data_row, per_lesson, daily, lesson, day, after_class, global_on, gl
     from_per_lesson = lookup(per_lesson, day, lesson)
     if is_concrete(from_per_lesson):
         return from_per_lesson
-    from_daily = lookup(daily, day, lesson)
+    from_daily = daily[lesson] if daily and 0 <= lesson < len(daily) else DEFAULT
     if is_concrete(from_daily):
         return from_daily
     return global_off if after_class else global_on
@@ -240,13 +261,22 @@ def migrate(cfg, docks=("left", "upper", "right", "center")):
             changed = True
 
     lessons = len(cfg.get("开始时间") or [])
-    for table_key in ("每日日程", "单课日程"):
-        if table_key not in cfg:
-            cfg[table_key] = write_table([[DEFAULT] * lessons for _ in range(7)], lessons)
+    # ②每日：各星期共用的一行（早期 7×N 写法在这里被压缩）
+    if "每日日程" not in cfg:
+        cfg["每日日程"] = [DEFAULT] * lessons
+        changed = True
+    else:
+        fitted = write_daily(read_daily(cfg["每日日程"], lessons), lessons)
+        if fitted != cfg["每日日程"]:
+            cfg["每日日程"] = fitted
             changed = True
-        else:
-            fitted = write_table(read_table(cfg[table_key], lessons), lessons)
-            if fitted != cfg[table_key]:
-                cfg[table_key] = fitted
-                changed = True
+    # ③每课：7 天 × 课节数
+    if "单课日程" not in cfg:
+        cfg["单课日程"] = write_table([[DEFAULT] * lessons for _ in range(7)], lessons)
+        changed = True
+    else:
+        fitted = write_table(read_table(cfg["单课日程"], lessons), lessons)
+        if fitted != cfg["单课日程"]:
+            cfg["单课日程"] = fitted
+            changed = True
     return changed

@@ -81,9 +81,9 @@ public class EditPage implements MainActivity.Page {
     private final List<Object> paramWidgets = new ArrayList<>();
     private final List<String> paramKeys = new ArrayList<>();
 
-    // ②每日那一列：默认收起，点列首的 × / 每日 切换
+    // ②每日那一列：默认收起，点列首的"每日 / ×"切换
+    // （②每日是"各星期共用"的一行，不分周几，长度 = 课节数）
     private boolean dailyColumnOpen;
-    private int dailyDay = 1;
 
     public EditPage(MainActivity activity) {
         this.activity = activity;
@@ -215,20 +215,16 @@ public class EditPage implements MainActivity.Page {
         dailyToggle.setGravity(Gravity.CENTER);
         dailyToggle.setTextSize(12);
         dailyToggle.setTextColor(0xFF1565C0);
-        dailyToggle.setText(dailyColumnOpen ? "× 周" + WEEK[dailyDay - 1] : "每日");
+        dailyToggle.setText(dailyColumnOpen ? "× 每日" : "每日");
         dailyToggle.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                if (dailyColumnOpen) {
-                    dailyColumnOpen = false;
-                    selectTab(0);
-                } else {
-                    chooseDailyDay();
-                }
+                dailyColumnOpen = !dailyColumnOpen;
+                selectTab(0);
             }
         });
         header.addView(dailyToggle, new LinearLayout.LayoutParams(
-                Ui.dp(activity, dailyColumnOpen ? 84 : 48),
+                Ui.dp(activity, dailyColumnOpen ? 76 : 48),
                 ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(header);
 
@@ -279,17 +275,16 @@ public class EditPage implements MainActivity.Page {
                 final int lessonIndex = courseIndexAtRow(rowIndex);
                 TextView dailyCell = Ui.chooser(activity);
                 dailyCell.setTextSize(11);
-                dailyCell.setText(Positions.labelOf(dailyStyleAt(dailyDay, lessonIndex)));
+                dailyCell.setText(Positions.labelOf(dailyStyleAt(lessonIndex)));
                 dailyCell.setOnClickListener(new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        choosePosition(dailyCell, "周" + WEEK[dailyDay - 1]
-                                + "·第" + (lessonIndex + 1) + "节（②每日）", true,
-                                dailyDay, lessonIndex);
+                        choosePosition(dailyCell, "第" + (lessonIndex + 1)
+                                + "节（②每日·各星期共用）", true, 1, lessonIndex);
                     }
                 });
                 line.addView(dailyCell, new LinearLayout.LayoutParams(
-                        Ui.dp(activity, 84), ViewGroup.LayoutParams.WRAP_CONTENT));
+                        Ui.dp(activity, 76), ViewGroup.LayoutParams.WRAP_CONTENT));
             }
             root.addView(line);
         }
@@ -345,12 +340,10 @@ public class EditPage implements MainActivity.Page {
         return starts == null ? 0 : starts.length();
     }
 
-    /** ②每日里某天某节的形态（"default" 表示跟随①全局）。 */
-    private String dailyStyleAt(int day, int lesson) {
+    /** ②每日里某节课的形态（"default" 表示跟随①全局）。 */
+    private String dailyStyleAt(int lesson) {
         if (lesson < 0) return Positions.DEFAULT;
-        JSONObject table = raw.optJSONObject("每日日程");
-        if (table == null) return Positions.DEFAULT;
-        String[] row = Positions.readRow(table.opt(String.valueOf(day)), lessonCount());
+        String[] row = Positions.readDaily(raw.opt("每日日程"), lessonCount());
         return lesson < row.length ? row[lesson] : Positions.DEFAULT;
     }
 
@@ -360,23 +353,6 @@ public class EditPage implements MainActivity.Page {
         if (table == null) return Positions.DEFAULT;
         String[] row = Positions.readRow(table.opt(String.valueOf(day)), lessonCount());
         return lesson < row.length ? row[lesson] : Positions.DEFAULT;
-    }
-
-    /** 列首点击：选择这一列显示周几。 */
-    private void chooseDailyDay() {
-        final String[] labels = new String[7];
-        for (int i = 0; i < 7; i++) labels[i] = "周" + WEEK[i];
-        new AlertDialog.Builder(activity)
-                .setTitle("②每日：选择要编辑的星期")
-                .setItems(labels, new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int which) {
-                        dailyDay = which + 1;
-                        dailyColumnOpen = true;
-                        selectTab(0);
-                    }
-                })
-                .show();
     }
 
     /**
@@ -405,16 +381,24 @@ public class EditPage implements MainActivity.Page {
     /** 写入 config 的②每日或③每课，只动一格。 */
     private void setStyleInTable(String tableKey, int day, int lesson, String style) {
         try {
-            JSONObject table = raw.optJSONObject(tableKey);
-            if (table == null) {
-                table = new JSONObject();
-                raw.put(tableKey, table);
-            }
             int lessons = lessonCount();
-            String[] row = Positions.readRow(table.opt(String.valueOf(day)), lessons);
-            if (lesson >= row.length) return;
-            row[lesson] = style;
-            table.put(String.valueOf(day), Positions.writeRow(row, lessons));
+            if ("每日日程".equals(tableKey)) {
+                // ②每日只有一行，各星期共用
+                String[] row = Positions.readDaily(raw.opt(tableKey), lessons);
+                if (lesson >= row.length) return;
+                row[lesson] = style;
+                raw.put(tableKey, Positions.writeDaily(row, lessons));
+            } else {
+                JSONObject table = raw.optJSONObject(tableKey);
+                if (table == null) {
+                    table = new JSONObject();
+                    raw.put(tableKey, table);
+                }
+                String[] row = Positions.readRow(table.opt(String.valueOf(day)), lessons);
+                if (lesson >= row.length) return;
+                row[lesson] = style;
+                table.put(String.valueOf(day), Positions.writeRow(row, lessons));
+            }
             ConfigRepository.save(activity, raw);
             OverlayService.refresh(activity);
         } catch (Exception e) {
@@ -444,7 +428,7 @@ public class EditPage implements MainActivity.Page {
                         for (int day = 1; day <= 7; day++) {
                             for (int lesson = 0; lesson < lessonCount(); lesson++) {
                                 setStyleInTableQuiet("单课日程", day, lesson,
-                                        dailyStyleAt(day, lesson));
+                                        dailyStyleAt(lesson));
                             }
                         }
                         saveRawQuiet();

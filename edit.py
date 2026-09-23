@@ -222,26 +222,23 @@ def fmt_time(pair):
     
 
 _daily_open = False
-_daily_day = 1
 _daily_widgets = []
 
 
-def _daily_style(day, lesson):
-    """②每日里某天某节的形态；没有覆盖时返回 default。"""
+def _daily_style(lesson):
+    """②每日里某节课的形态；各星期共用，没有覆盖时返回 default。"""
     lessons = len(config.get("开始时间") or [])
-    table = config.get("每日日程") or {}
-    row = P.read_row(table.get(str(day)), lessons)
+    row = P.read_daily(config.get("每日日程"), lessons)
     return row[lesson] if 0 <= lesson < len(row) else P.DEFAULT
 
 
-def _set_daily_style(day, lesson, style, label_widget):
-    table = config.setdefault("每日日程", {})
+def _set_daily_style(lesson, style, label_widget):
     lessons = len(config.get("开始时间") or [])
-    row = P.read_row(table.get(str(day)), lessons)
+    row = P.read_daily(config.get("每日日程"), lessons)
     if lesson < 0 or lesson >= lessons:
         return
     row[lesson] = style
-    table[str(day)] = P.write_row(row, lessons)
+    config["每日日程"] = P.write_daily(row, lessons)
     label_widget.set(P.label_of(style))
     with open("config.json", "w", encoding="utf-8") as f:
         json.dump(config, f, ensure_ascii=False, indent=2)
@@ -250,13 +247,6 @@ def _set_daily_style(day, lesson, style, label_widget):
 def _toggle_daily_column():
     global _daily_open
     _daily_open = not _daily_open
-    _rebuild_schedule()
-
-
-def _choose_daily_day(day):
-    global _daily_day, _daily_open
-    _daily_day = day
-    _daily_open = True
     _rebuild_schedule()
 
 
@@ -290,12 +280,11 @@ def _rebuild_schedule():
     # 周日的右边：②每日那一列的开关（默认收起）
     daily_header = ttk.Label(
         scrollable_frame,
-        text=("× 周" + P.WEEK_NAMES[_daily_day - 1]) if _daily_open else "每日",
+        text="× 每日" if _daily_open else "每日",
         width=10, relief="solid", padding=5,
     )
     daily_header.grid(row=0, column=8, sticky="nsew")
-    daily_header.bind("<Button-1>", lambda e: _toggle_daily_column() if _daily_open
-                      else _choose_daily_day_menu())
+    daily_header.bind("<Button-1>", lambda e: _toggle_daily_column())
     _daily_widgets.append(daily_header)
 
     lesson = -1
@@ -317,11 +306,11 @@ def _rebuild_schedule():
             if _daily_open:
                 cell = ttk.Combobox(scrollable_frame, values=P.STYLE_LABELS_WITH_DEFAULT,
                                     state="readonly", width=8)
-                cell.set(P.label_of(_daily_style(_daily_day, lesson)))
+                cell.set(P.label_of(_daily_style(lesson)))
                 cell.grid(row=row + 1, column=8, padx=1, pady=1, sticky="nsew")
                 cell.bind("<<ComboboxSelected>>",
                           lambda e, w=cell, l=lesson: _set_daily_style(
-                              _daily_day, l, P.STYLES_WITH_DEFAULT[
+                              l, P.STYLES_WITH_DEFAULT[
                                   P.STYLE_LABELS_WITH_DEFAULT.index(w.get())], w))
                 _daily_widgets.append(cell)
         else:
@@ -329,15 +318,6 @@ def _rebuild_schedule():
                 sepLine = ttk.Separator(scrollable_frame, orient='horizontal')
                 sepLine.grid(row=row + 1, column=col, columnspan=1, sticky='ew', pady=(10, 10))
                 comboboxes[row + 1][col] = sepLine
-
-
-def _choose_daily_day_menu():
-    win = tk.Toplevel()
-    win.title("②每日：选择要编辑的星期")
-    for i, name in enumerate(P.WEEK_NAMES):
-        ttk.Button(win, text="周" + name, width=10,
-                   command=lambda d=i + 1, w=win: (w.destroy(), _choose_daily_day(d))).pack(
-            padx=12, pady=3)
 
 
 def create_schedule_tab(parent, text):
@@ -970,8 +950,9 @@ def _lesson_rows(table_key):
 
 
 def daily_style_rows():
-    """②每日：7 天 × 课节数。"""
-    return _lesson_rows("每日日程")
+    """②每日：各星期共用的一行，长度为课节数。"""
+    lessons = len(config.get("开始时间") or [])
+    return P.read_daily(config.get("每日日程"), lessons)
 
 
 def per_lesson_rows():

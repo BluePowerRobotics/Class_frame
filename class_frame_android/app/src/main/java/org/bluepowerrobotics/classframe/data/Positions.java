@@ -213,6 +213,32 @@ public final class Positions {
     }
 
     /**
+     * 读②每日：它只有一行（各星期共用），长度为课节数。
+     *
+     * 兼容早期的 7×N 写法：七行内容一致就压成一行；不一致时取周一，
+     * 由调用方去日志里提示用户（差异内容应挪到③每课）。
+     */
+    public static String[] readDaily(Object source, int lessons) {
+        if (source instanceof JSONObject) {
+            JSONObject object = (JSONObject) source;
+            String[] first = readRow(object.opt("1"), lessons);
+            for (int day = 2; day <= 7; day++) {
+                String[] other = readRow(object.opt(String.valueOf(day)), lessons);
+                for (int i = 0; i < lessons; i++) {
+                    if (!first[i].equals(other[i])) return first;
+                }
+            }
+            return first;
+        }
+        return readRow(source, lessons);
+    }
+
+    /** 写②每日：一行，长度为课节数。 */
+    public static JSONArray writeDaily(String[] row, int lessons) {
+        return writeRow(row, lessons);
+    }
+
+    /**
      * 解析链：data 第3项 → ③每课 → ②每日 → ①全局。
      *
      * @param dataRow  该日期 data 记录里的位置行，可为 null（旧数据没有这一项）
@@ -221,7 +247,7 @@ public final class Positions {
      * @param afterClass 当前是课间/放学（true）还是上课中（false）
      * @param globalOn / globalOff ①全局的上课、下课形态
      */
-    public static String resolve(String[] dataRow, String[][] perLesson, String[][] daily,
+    public static String resolve(String[] dataRow, String[][] perLesson, String[] daily,
                                  int lesson, int day, boolean afterClass,
                                  String globalOn, String globalOff) {
         if (dataRow != null && lesson >= 0 && lesson < dataRow.length
@@ -230,7 +256,8 @@ public final class Positions {
         }
         String fromPerLesson = lookup(perLesson, day, lesson);
         if (isConcrete(fromPerLesson)) return fromPerLesson;
-        String fromDaily = lookup(daily, day, lesson);
+        String fromDaily = daily != null && lesson >= 0 && lesson < daily.length
+                ? daily[lesson] : DEFAULT;
         if (isConcrete(fromDaily)) return fromDaily;
         return afterClass ? globalOff : globalOn;
     }

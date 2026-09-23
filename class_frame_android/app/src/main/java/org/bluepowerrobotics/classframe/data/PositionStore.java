@@ -26,14 +26,20 @@ public final class PositionStore {
 
     // -------------------------------------------------------- 读取
 
-    public static String[] readDailyRow(JSONObject config, int day, int lessons) {
-        JSONObject table = config == null ? null : config.optJSONObject("每日日程");
-        return Positions.readRow(table == null ? null : table.opt(String.valueOf(day)), lessons);
-    }
-
     public static String[] readPerLessonRow(JSONObject config, int day, int lessons) {
         JSONObject table = config == null ? null : config.optJSONObject("单课日程");
         return Positions.readRow(table == null ? null : table.opt(String.valueOf(day)), lessons);
+    }
+
+    /** ②每日（各星期共用的一行）。 */
+    public static String[] dailyRow(Context context, int lessons) {
+        try {
+            return Positions.readDaily(ConfigRepository.loadRaw(context).opt("每日日程"), lessons);
+        } catch (Exception e) {
+            String[] row = new String[lessons];
+            for (int i = 0; i < lessons; i++) row[i] = Positions.DEFAULT;
+            return row;
+        }
     }
 
     public static String[] row(Context context, String tableKey, int day, int lessons) {
