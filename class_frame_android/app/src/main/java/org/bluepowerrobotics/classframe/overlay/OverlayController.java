@@ -764,18 +764,16 @@ public final class OverlayController implements OverlayView.Listener {
         requestFrames();
         if (tokenIndex < 0 || tokenIndex >= editorTokens.size()) return;
         if (Config.isSpecialToken(editorTokens.get(tokenIndex))) return;
-        // 课被替换了，原"每课"设置不再适用：把当前位置记到②每日，覆盖这一格
-        rememberEditorPosition();
+        // 替换的这节课，位置也随之固定：写进 data.json 这条记录本身（写真实形态），
+        // 而不是写 config 的②每日——覆盖记录承载"这一天这节课长什么样"，位置是它的一部分。
+        // editorTokens 与位置行同构：位置行的下标就是课节序号
+        int lesson = todayLessonIndexForEditor();
         editorTokens.set(tokenIndex, course);
         try {
             JSONArray array = new JSONArray();
             for (String token : editorTokens) array.put(token);
-            // 保留该日期原有的位置行，别因为一次调课把位置信息冲掉
-            Object positions = DayChangeRepository.rawPositionsForDate(context,
-                    dateString(editorDate));
-            JSONArray positionArray = positions instanceof JSONArray
-                    ? (JSONArray) positions : null;
-            DayChangeRepository.upsert(context, dateString(editorDate), array, positionArray);
+            DayChangeRepository.upsert(context, dateString(editorDate), array,
+                    editorPositionArray(lesson));
         } catch (Exception e) {
             Toast.makeText(context, "保存调课失败：" + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
@@ -783,18 +781,32 @@ public final class OverlayController implements OverlayView.Listener {
         refresh();
     }
 
-    /** 把编辑器当前形态记进②每日（编辑器编辑的是"某天"，而不是"每节课的默认"）。 */
-    private void rememberEditorPosition() {
-        if (config == null) return;
-        int lesson = state == null ? -1
-                : (state.stateIndex >= 0 ? state.stateIndex : state.stateNext);
-        if (lesson < 0) return;
-        try {
-            PositionStore.writeDaily(context, isoWeekday(editorDate), lesson,
-                    Positions.of(dock, secondStyle));
-        } catch (Exception e) {
-            Logs.e(TAG, "记录编辑器位置失败", e);
+    /** 编辑器所处的课节下标。 */
+    private int todayLessonIndexForEditor() {
+        if (state == null) return -1;
+        return state.stateIndex >= 0 ? state.stateIndex : state.stateNext;
+    }
+
+    /**
+     * 构造这条调课记录的位置行：已被替换过的那节课取当前形态，其余槽位保持既有覆盖，
+     * 没有任何覆盖的槽位留空（data.json 不写 "default"）。
+     */
+    private JSONArray editorPositionArray(int lesson) {
+        int lessons = config == null ? 0 : config.lessonCount();
+        JSONArray array = new JSONArray();
+        String[] existing = DayChangeRepository.positionsForDate(context,
+                dateString(editorDate), lessons);
+        for (int i = 0; i < lessons; i++) {
+            if (i == lesson) {
+                array.put(Positions.of(dock, secondStyle));
+            } else if (existing != null && i < existing.length
+                    && Positions.isConcrete(existing[i])) {
+                array.put(existing[i]);
+            } else {
+                array.put("");
+            }
         }
+        return array;
     }
 
     private void loadEditorTokens() {

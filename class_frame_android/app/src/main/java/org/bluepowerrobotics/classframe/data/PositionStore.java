@@ -60,11 +60,6 @@ public final class PositionStore {
         writeCell(context, "单课日程", day, lesson, style);
     }
 
-    /** 写 ②每日 的某一格。 */
-    public static void writeDaily(Context context, int day, int lesson, String style) {
-        writeCell(context, "每日日程", day, lesson, style);
-    }
-
     private static void writeCell(Context context, String tableKey, int day, int lesson,
                                   String style) {
         try {

@@ -1284,29 +1284,36 @@ class calendar:
         self.ml.place_forget()
 
     def remember_editor_position(self):
-        """把编辑器当前形态记进②每日（编辑器编辑的是某一天，不是"每节课的默认"）。"""
+        """编辑器替换课程后，当前位置要跟着写进 data.json 那条记录。
+
+        调用方在替换前调用本方法，把"这节课的形态"记在 self._editor_pending_style 上，
+        由 save_change 写进记录的第 3 项。
+        """
         lesson = self.current_lesson_index()
         if lesson is None or lesson < 0:
+            self._editor_pending_style = None
             return
-        when = getattr(self, "date_view", None) or self.now_time()
-        self.set_table_cell("每日日程", when.isoweekday(), lesson,
-                            P.of(self.nowgroup, self.second_style))
+        self._editor_pending_style = (lesson, P.of(self.nowgroup, self.second_style))
 
     def save_change(self, date_s, tokens):
-        # 保留该日期原有的位置行（第 3 项）——它由三层体系消费，调课不应把它冲掉
-        existing_positions = None
-        for rec in self.class_change:
-            if rec and str(rec[0]) == date_s and len(rec) > 2:
-                existing_positions = rec[2]
-                break
+        # 位置行：保留该日期已有的覆盖，并把刚被替换的那节课写上"当前形态"
+        # （写真实值，不写 "default"）。这样覆盖记录本身就带位置，与 Android 一致。
+        lessons = self.lesson_count
+        row = self.positions_for_date(date_s)
+        if row is None:
+            row = [P.DEFAULT] * lessons
+        pending = getattr(self, "_editor_pending_style", None)
+        if pending is not None:
+            lesson, style = pending
+            if 0 <= lesson < lessons:
+                row[lesson] = style
+        self._editor_pending_style = None
+        positions = [cell if P.is_concrete(cell) else "" for cell in row]
         new = []
         for rec in self.class_change:
             if rec[0] != date_s:
                 new.append(rec)
-        if existing_positions is None:
-            new.append([date_s, tokens])
-        else:
-            new.append([date_s, tokens, existing_positions])
+        new.append([date_s, tokens, positions])
         self.class_change = new
         try:
             with open("data.json", "w", encoding="utf-8") as file:
