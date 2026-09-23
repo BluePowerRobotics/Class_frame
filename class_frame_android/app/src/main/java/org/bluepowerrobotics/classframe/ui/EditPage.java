@@ -38,7 +38,7 @@ public class EditPage implements MainActivity.Page {
     private static final String[] WEEK = {"一", "二", "三", "四", "五", "六", "日"};
     private static final String[][] SECTIONS = {
             {"显示与置顶", "上课显示倒计条:bool:1", "下课显示倒计时:bool:1",
-                    "上课置顶:bool:1", "下课置顶:bool:1",
+                    "上课隐藏悬浮层:bool:1", "下课隐藏悬浮层:bool:1",
                     "上课提示时长:number:1", "下课提示时长:number:1"},
             {"字号与尺寸", "文字大小:number:1", "竖直显示的文字大小:number:1",
                     "进度条宽度:number:1", "left上课缩放:number:0", "left下课缩放:number:0",

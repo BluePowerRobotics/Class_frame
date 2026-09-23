@@ -30,6 +30,12 @@ public final class Config {
     public String endPrompt = "下课时间";
     public boolean showCountdownAfterClass = true;
     public boolean showProgressOnClass = true;
+    /**
+     * 原来的「上课置顶」「下课置顶」在 Android 上没有置顶语义（悬浮窗恒在最上层），
+     * 按需求复用为「上课隐藏悬浮层」「下课隐藏悬浮层」，默认 false = 保持显示。
+     */
+    public boolean hideOnClass = false;
+    public boolean hideAfterClass = false;
     public int textSize = 40;
     public int verticalTextSize = 28;
     public int progressWidth = 8;
@@ -72,6 +78,8 @@ public final class Config {
         c.endPrompt = Json.text(cfg, "结束提示", "下课时间");
         c.showCountdownAfterClass = Json.flag(cfg, "下课显示倒计时", true);
         c.showProgressOnClass = Json.flag(cfg, "上课显示倒计条", true);
+        c.hideOnClass = Json.flag(cfg, "上课隐藏悬浮层", false);
+        c.hideAfterClass = Json.flag(cfg, "下课隐藏悬浮层", false);
         c.textSize = Json.num(cfg.opt("文字大小"), 40);
         c.verticalTextSize = Json.num(cfg.opt("竖直显示的文字大小"), 28);
         c.progressWidth = Math.max(1, Json.num(cfg.opt("进度条宽度"), 8));
@@ -97,6 +105,23 @@ public final class Config {
 
     /** 对应 Python 的 migrate_config()：兼容旧位置写法、全局 secondStyle 与旧缩放字段。 */
     public static JSONObject migrate(JSONObject cfg) throws JSONException {
+        /*
+         * 「上课置顶」「下课置顶」在 Android 上没有置顶语义，复用为「上课/下课隐藏悬浮层」。
+         * 这里做一次性的单向迁移：旧键存在而新键不存在时，按旧键的 0 值初始化
+         * （Python 版默认写 1，直接沿用会让升级后第一节课就整层隐藏，不是用户想要的默认），
+         * 然后删掉旧键，之后 config.json 里只有新键，import/export 也不再出现令人困惑的名字。
+         */
+        for (String[] pair : new String[][]{
+                {"上课置顶", "上课隐藏悬浮层"}, {"下课置顶", "下课隐藏悬浮层"}}) {
+            if (cfg.has(pair[0])) {
+                if (!cfg.has(pair[1])) {
+                    // 旧值 0 说明用户当年就不想置顶，保留这个意图；1 无法区分，按"不隐藏"处理
+                    cfg.put(pair[1], new JSONArray().put(Json.num(cfg.opt(pair[0]), 1) == 0 ? 1 : 0));
+                }
+                cfg.remove(pair[0]);
+            }
+        }
+
         boolean legacyUpper = false;
         for (String key : new String[]{"上课默认位置", "下课默认位置"}) {
             if (cfg.has(key)) {

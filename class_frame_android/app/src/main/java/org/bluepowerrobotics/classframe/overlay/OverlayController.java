@@ -56,6 +56,8 @@ public final class OverlayController implements OverlayView.Listener {
 
     private boolean shown;
     private boolean dirty = true;
+    /** 当前时段被「上课/下课隐藏悬浮层」关掉了（与"未授予权限"等失败区分开）。 */
+    private boolean hiddenBySetting;
 
     // 拖动状态
     private boolean dragging;
@@ -126,7 +128,18 @@ public final class OverlayController implements OverlayView.Listener {
 
     /** 当前时刻按课表本应显示（状态机说了算），与"窗口是否真的挂上去"无关。 */
     public boolean shouldBeVisible() {
-        return state != null && !state.hidden;
+        return state != null && !shouldHideBySetting(state);
+    }
+
+    /**
+     * 「上课隐藏悬浮层」「下课隐藏悬浮层」：这两个开关直接决定整层是否挂上。
+     *
+     * 「下课」覆盖课间与放学（以及放学后的 10 分钟倒计时窗口）——因为它们同属 afterClass，
+     * 拆成"课间隐藏、放学后又不隐藏"会很反直觉。
+     */
+    private boolean shouldHideBySetting(OverlayState current) {
+        if (current == null || config == null) return false;
+        return current.afterClass ? config.hideAfterClass : config.hideOnClass;
     }
 
     public MovementController movement() {
@@ -135,6 +148,44 @@ public final class OverlayController implements OverlayView.Listener {
 
     public void markDirty() {
         dirty = true;
+    }
+
+    /**
+     * 返回 true 表示调用方不应再挂窗口（已被本方法收掉）。
+     * 与 {@link #hide()} 的区别只是不改变状态、并抑制一次"被拦截"的日志噪音。
+     */
+    private boolean hideBySetting() {
+        hiddenBySetting = true;
+        hideWindows();
+        return true;
+    }
+
+    /** 只收窗口，不改变 shown 语义之外的任何状态。 */
+    private void hideWindows() {
+        shown = false;
+        if (countView != null) {
+            try {
+                windowManager.removeViewImmediate(countView);
+            } catch (Exception ignored) {
+            }
+            countView = null;
+        }
+        if (mainView != null) {
+            try {
+                windowManager.removeViewImmediate(mainView);
+            } catch (Exception ignored) {
+            }
+            mainView = null;
+        }
+        if (touchView != null) {
+            try {
+                windowManager.removeViewImmediate(touchView);
+            } catch (Exception ignored) {
+            }
+            touchView = null;
+            touchParams = null;
+        }
+        movement.islands().clear();
     }
 
     /** 是否仍需要按最高帧率刷新（拖动中、刚交互完、或动画未收敛）。 */
@@ -167,7 +218,7 @@ public final class OverlayController implements OverlayView.Listener {
         if (!Prefs.overlayEnabled(context)) {
             Logs.w(TAG, "overlay show blocked: 「启用悬浮窗」开关已关闭");
             lastShowError = "「启用悬浮窗」开关已关闭";
-            hide();
+            hideWindows();
             return false;
         }
         if (!canDrawOverlay()) {
@@ -175,6 +226,9 @@ public final class OverlayController implements OverlayView.Listener {
             lastShowError = "未授予「显示在其他应用上方」";
             return false;
         }
+        // 当前时段被「上课/下课隐藏悬浮层」关掉时，show() 不算失败，只是没什么可显示
+        if (hiddenBySetting) return false;
+        hiddenBySetting = false;
         try {
             if (mainView == null) {
                 Logs.i(TAG, "overlay show: 开始创建绘制窗口");
@@ -278,6 +332,23 @@ public final class OverlayController implements OverlayView.Listener {
             if (countView != null) countView.setVisibility(View.GONE);
             return;
         }
+
+        // 「上课隐藏悬浮层」「下课隐藏悬浮层」：整层收掉。
+        // 注意必须真的把窗口从 WindowManager 移除，不能只设 GONE——
+        // 窗口是 FLAG_NOT_TOUCHABLE 的绘制窗 + 贴合可见矩形的触摸代理窗，
+        // 窗口留着就意味着那块区域仍在吃触摸，这跟"隐藏"的预期不符。
+        if (shouldHideBySetting(state)) {
+            if (mainView != null) {
+                Logs.i(TAG, "按设置隐藏整层（" + (state.afterClass ? "下课" : "上课") + "）");
+            }
+            hideBySetting();
+            // 动画状态一并清掉，避免下次显示时从旧位置滑入
+            movement.resetApplied();
+            dragging = false;
+            dragClick = false;
+            return;
+        }
+        hiddenBySetting = false;
         mainView.setVisibility(View.VISIBLE);
 
         applyStateDefaults();
