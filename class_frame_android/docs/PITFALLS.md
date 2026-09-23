@@ -23,7 +23,7 @@ E AndroidRuntime: 	at SystemPage.showTimeDialog(SystemPage.java:778)
 
 **教训**：互相联动的输入框不能用 `hasFocus()` 做重入保护，必须用显式标志位。
 
-## 2. 选择班级后"②每日"不生效 — app 私有目录里是旧模板
+## 2. 选择班级后"每日（第2层）"不生效 — app 私有目录里是旧模板
 
 **现象**：setclass 里选 2701/2704 并应用配置，课表变了，但位置（早读=上表、答疑前一节=时钟）
 没有跟着变。

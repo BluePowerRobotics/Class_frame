@@ -610,7 +610,7 @@ def create_parameter_settings(parent):
         ]),
         # ①全局：替代原来的"上课/下课默认位置 + 使用secondStyle"，
         # 也取代"拖入区域时默认使用的样式"（新三层不再依赖它）
-        ("① 全局（未设置②每日/③每课时使用）", [
+        ("全局（未设置每日/每课时使用）", [
             ("全局日程·上课", "上课时形态", "style"),
             ("全局日程·下课", "课间/放学时形态", "style"),
         ]),
@@ -696,7 +696,7 @@ def create_parameter_settings(parent):
     ).grid(row=grid_row, column=3, padx=10, pady=10, sticky="se")
     ttk.Button(
         frame,
-        text="③每课（文本框整表编辑）",
+        text="每课（文本框整表编辑）",
         command=show_per_lesson_editor,
         width=22,
     ).grid(row=grid_row + 1, column=0, columnspan=3, padx=10, pady=(0, 10), sticky="w")
@@ -710,7 +710,7 @@ def show_per_lesson_editor():
     lessons = len(config.get("开始时间") or [])
     rows = per_lesson_rows()
     win = tk.Toplevel()
-    win.title("③每课（每行一天，逗号分隔；默认 = 跟随②每日）")
+    win.title("每课（每行一天，逗号分隔；默认 = 跟随每日）")
     win.geometry("720x320")
     text = tk.Text(win, wrap="word")
     for day in range(7):
@@ -739,7 +739,7 @@ def show_per_lesson_editor():
             config.setdefault("单课日程", {})[str(day)] = P.write_row(row, lessons)
         with open("config.json", "w", encoding="utf-8") as f:
             json.dump(config, f, ensure_ascii=False, indent=2)
-        messagebox.showinfo("保存成功", "③每课已保存")
+        messagebox.showinfo("保存成功", "每课已保存")
         win.destroy()
 
     ttk.Button(win, text="保存", command=apply, width=15).pack(pady=(0, 8))

@@ -46,7 +46,7 @@ public class EditPage implements MainActivity.Page {
                     "upper上课缩放:number:0", "upper下课缩放:number:0", "center缩放:number:0"},
             // ①全局：替代原来的"上课/下课默认位置 + 使用secondStyle"，
             // 也取代"拖入区域时默认使用的样式"（新三层不再依赖它）
-            {"① 全局（未设置②每日/③每课时使用）",
+            {"全局（未设置每日/每课时使用）",
                     "全局日程·上课:style:0", "全局日程·下课:style:0"},
             {"提示文字", "开始提示:text:0", "结束提示:text:0", "结尾提示:text:0"},
             {"时间校正", "时间偏移（秒）:number:0"},
@@ -82,7 +82,7 @@ public class EditPage implements MainActivity.Page {
     private final List<String> paramKeys = new ArrayList<>();
 
     // ②每日那一列：默认收起，点列首的"每日 / ×"切换
-    // （②每日是"各星期共用"的一行，不分周几，长度 = 课节数）
+    // （每日是"各星期共用"的一行，不分周几，长度 = 课节数）
     private boolean dailyColumnOpen;
 
     public EditPage(MainActivity activity) {
@@ -271,7 +271,7 @@ public class EditPage implements MainActivity.Page {
                         ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
             }
             if (dailyColumnOpen) {
-                // ②每日：这一格表示"某天某节用什么形态"，默认表示跟随①全局
+                // ②每日：这一格表示"某天某节用什么形态"，默认表示跟随全局
                 final int lessonIndex = courseIndexAtRow(rowIndex);
                 TextView dailyCell = Ui.chooser(activity);
                 dailyCell.setTextSize(11);
@@ -280,7 +280,7 @@ public class EditPage implements MainActivity.Page {
                     @Override
                     public void onClick(View v) {
                         choosePosition(dailyCell, "第" + (lessonIndex + 1)
-                                + "节（②每日·各星期共用）", true, 1, lessonIndex);
+                                + "节（每日·各星期共用）", true, 1, lessonIndex);
                     }
                 });
                 line.addView(dailyCell, new LinearLayout.LayoutParams(
@@ -340,7 +340,7 @@ public class EditPage implements MainActivity.Page {
         return starts == null ? 0 : starts.length();
     }
 
-    /** ②每日里某节课的形态（"default" 表示跟随①全局）。 */
+    /** ②每日里某节课的形态（"default" 表示跟随全局）。 */
     private String dailyStyleAt(int lesson) {
         if (lesson < 0) return Positions.DEFAULT;
         String[] row = Positions.readDaily(raw.opt("每日日程"), lessonCount());
@@ -356,7 +356,7 @@ public class EditPage implements MainActivity.Page {
     }
 
     /**
-     * 选形态。daily=true 写②每日，false 写③每课。
+     * 选形态。daily=true 写每日，false 写每课。
      * ③每课只在这里的文本入口里出现，不做图形编辑。
      */
     private void choosePosition(final TextView target, String title, final boolean daily,
@@ -378,7 +378,7 @@ public class EditPage implements MainActivity.Page {
                 .show();
     }
 
-    /** 写入 config 的②每日或③每课，只动一格。 */
+    /** 写入 config 的每日或每课，只动一格。 */
     private void setStyleInTable(String tableKey, int day, int lesson, String style) {
         try {
             int lessons = lessonCount();
@@ -414,7 +414,7 @@ public class EditPage implements MainActivity.Page {
         input.setMinLines(8);
         input.setText(perLessonAsText());
         new AlertDialog.Builder(activity)
-                .setTitle("③每课（每行一天，用逗号分隔）")
+                .setTitle("每课（每行一天，用逗号分隔）")
                 .setView(input)
                 .setPositiveButton("保存", new DialogInterface.OnClickListener() {
                     @Override
@@ -422,7 +422,7 @@ public class EditPage implements MainActivity.Page {
                         applyPerLessonText(input.getText().toString());
                     }
                 })
-                .setNeutralButton("填入②每日", new DialogInterface.OnClickListener() {
+                .setNeutralButton("填入每日", new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
                         for (int day = 1; day <= 7; day++) {
@@ -432,7 +432,7 @@ public class EditPage implements MainActivity.Page {
                             }
                         }
                         saveRawQuiet();
-                        toast("已用②每日填充③每课");
+                        toast("已用每日填充每课");
                     }
                 })
                 .setNegativeButton("取消", null)
@@ -482,7 +482,7 @@ public class EditPage implements MainActivity.Page {
             }
             ConfigRepository.save(activity, raw);
             OverlayService.refresh(activity);
-            toast("③每课已保存");
+            toast("每课已保存");
         } catch (Exception e) {
             toast("保存失败：" + e.getMessage());
         }
@@ -871,7 +871,7 @@ public class EditPage implements MainActivity.Page {
                         @Override
                         public void onClick(View v) {
                             new AlertDialog.Builder(activity)
-                                    .setTitle("① 全局·" + (onClass ? "上课" : "下课"))
+                                    .setTitle(" 全局·" + (onClass ? "上课" : "下课"))
                                     .setItems(Positions.STYLE_LABELS,
                                             new DialogInterface.OnClickListener() {
                                                 @Override
@@ -918,7 +918,7 @@ public class EditPage implements MainActivity.Page {
                 saveParams();
             }
         }));
-        root.addView(Ui.button(activity, "③每课（文本框整表编辑）", new View.OnClickListener() {
+        root.addView(Ui.button(activity, "每课（文本框整表编辑）", new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 showPerLessonEditor();
@@ -945,7 +945,7 @@ public class EditPage implements MainActivity.Page {
         return Positions.fromLegacy(dock, boolValue(styleKey));
     }
 
-    /** 写①全局，同时同步旧键，保证 Python 版与旧版仍能读到同样的语义。 */
+    /** 写全局，同时同步旧键，保证 Python 版与旧版仍能读到同样的语义。 */
     private void setGlobalStyle(boolean onClass, String style) {
         try {
             JSONObject global = raw.optJSONObject("全局日程");

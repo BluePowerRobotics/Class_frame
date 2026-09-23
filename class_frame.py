@@ -1,4 +1,8 @@
 # -*- coding: utf-8 -*-
+"""灵动课表（桌面版）。
+
+版本：0.2.0（与 Android 版同步；本版新增单课默认位置的三层体系）。
+"""
 import os
 import json
 import time
