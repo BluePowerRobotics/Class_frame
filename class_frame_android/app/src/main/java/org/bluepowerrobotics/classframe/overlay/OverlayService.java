@@ -201,6 +201,21 @@ public class OverlayService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         Logs.i(TAG, "service onStartCommand action="
                 + (intent == null ? "(null)" : intent.getAction()) + " startId=" + startId);
+
+        String action = intent == null ? ACTION_START : intent.getAction();
+        OverlayController controller = OverlayController.get(this);
+
+        // 开关关着时连前台服务都不必起：否则通知栏会一直挂着一条"运行中"，看起来像没关掉。
+        // ACTION_STOP 仍要执行，用来把已存在的服务收掉。
+        if (!Prefs.overlayEnabled(this) && !ACTION_STOP.equals(action)) {
+            Logs.w(TAG, "overlayEnabled=false，悬浮层不启动（action=" + action + "）");
+            stopTicker();
+            cancelWake();
+            controller.hide();
+            updateNotification(false);
+            return START_STICKY;
+        }
+
         try {
             startForegroundCompat();
             Logs.i(TAG, "startForeground ok");
@@ -209,8 +224,6 @@ public class OverlayService extends Service {
             Logs.e(TAG, "startForeground failed", e);
         }
 
-        String action = intent == null ? ACTION_START : intent.getAction();
-        OverlayController controller = OverlayController.get(this);
         controller.setFrameRequester(new OverlayController.FrameRequester() {
             @Override
             public void requestFrames() {
@@ -232,16 +245,9 @@ public class OverlayService extends Service {
         }
 
         if (ACTION_HIDE_OVERLAY.equals(action)) {
+            // "移除悬浮层"要真正落实成"关掉开关"，否则下一次唤醒又会把它显示回来
+            Prefs.setOverlayEnabled(this, false);
             stopTicker();
-            controller.hide();
-            updateNotification(false);
-            return START_STICKY;
-        }
-
-        if (!Prefs.overlayEnabled(this)) {
-            Logs.w(TAG, "overlayEnabled=false，悬浮层不启动");
-            stopTicker();
-            cancelWake();
             controller.hide();
             updateNotification(false);
             return START_STICKY;

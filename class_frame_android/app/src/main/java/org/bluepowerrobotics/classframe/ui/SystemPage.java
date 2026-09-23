@@ -144,12 +144,33 @@ public class SystemPage implements MainActivity.Page {
         actions.addView(Ui.button(activity, "显示悬浮层", new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                if (!Prefs.overlayEnabled(activity)) {
+                    // 开关关着时按钮不能再偷偷打开悬浮层，否则就成了"关了还自己显示"
+                    toast("「启用悬浮窗」当前是关闭的，先把它打开");
+                    return;
+                }
                 if (!Settings.canDrawOverlays(activity)) {
                     toast("请先授予「显示在其他应用上方」");
                     openOverlaySettings();
                     return;
                 }
                 OverlayService.start(activity);
+                // 服务是异步的，稍后回读结果给出准确提示
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                        new Runnable() {
+                            @Override
+                            public void run() {
+                                OverlayController controller =
+                                        OverlayController.get(activity);
+                                if (controller.isShown()) {
+                                    toast("悬浮层已显示");
+                                } else {
+                                    String reason = controller.lastShowError();
+                                    toast(reason == null ? "悬浮层未能显示，请查看运行日志" : reason);
+                                }
+                                refresh();
+                            }
+                        }, 500);
             }
         }));
         actions.addView(Ui.button(activity, "移除悬浮层", new View.OnClickListener() {

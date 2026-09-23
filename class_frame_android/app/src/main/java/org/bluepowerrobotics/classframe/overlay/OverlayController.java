@@ -76,6 +76,7 @@ public final class OverlayController implements OverlayView.Listener {
     private long lastInteractionAt;
     private int interactionHoldMs = 500;
     private String lastLoggedState;
+    private String lastShowError;
 
     public interface FrameRequester {
         void requestFrames();
@@ -150,9 +151,28 @@ public final class OverlayController implements OverlayView.Listener {
         lastInteractionAt = System.currentTimeMillis();
     }
 
+    /** show() 失败的原因，供界面提示用。 */
+    public String lastShowError() {
+        return lastShowError;
+    }
+
+    /**
+     * 显示悬浮层。
+     *
+     * 这里必须把「启用悬浮窗」当成硬闸门：以前这个开关只在服务里判断了一次，
+     * 于是定时唤醒、系统重启后的 ACTION_START、以及界面上的按钮都能绕过去，
+     * 表现就是"我明明关掉了，它自己又显示出来"。
+     */
     public boolean show() {
+        if (!Prefs.overlayEnabled(context)) {
+            Logs.w(TAG, "overlay show blocked: 「启用悬浮窗」开关已关闭");
+            lastShowError = "「启用悬浮窗」开关已关闭";
+            hide();
+            return false;
+        }
         if (!canDrawOverlay()) {
             Logs.w(TAG, "overlay show skipped: 未授予「显示在其他应用上方」");
+            lastShowError = "未授予「显示在其他应用上方」";
             return false;
         }
         try {
@@ -171,12 +191,15 @@ public final class OverlayController implements OverlayView.Listener {
                 Logs.i(TAG, "overlay show: 触摸代理窗口已添加 type=" + touchParams.type);
             }
             shown = true;
+            lastShowError = null;
             dirty = true;
             refresh();
             Logs.i(TAG, "overlay show ok");
             return true;
         } catch (Exception e) {
             Logs.e(TAG, "overlay show failed (无法添加悬浮窗)", e);
+            lastShowError = e.getClass().getSimpleName()
+                    + (e.getMessage() == null ? "" : ": " + e.getMessage());
             shown = false;
             return false;
         }
