@@ -205,23 +205,32 @@ public class OverlayService extends Service {
         String action = intent == null ? ACTION_START : intent.getAction();
         OverlayController controller = OverlayController.get(this);
 
-        // 开关关着时连前台服务都不必起：否则通知栏会一直挂着一条"运行中"，看起来像没关掉。
-        // ACTION_STOP 仍要执行，用来把已存在的服务收掉。
-        if (!Prefs.overlayEnabled(this) && !ACTION_STOP.equals(action)) {
-            Logs.w(TAG, "overlayEnabled=false，悬浮层不启动（action=" + action + "）");
-            stopTicker();
-            cancelWake();
-            controller.hide();
-            updateNotification(false);
-            return START_STICKY;
-        }
-
+        /*
+         * startForeground 必须在任何 return 之前调用。
+         *
+         * 用 startForegroundService() 拉起来的服务，系统要求 5 秒内调用 startForeground()，
+         * 否则直接抛 RemoteServiceException 把进程打死；而返回 START_STICKY 又会让系统重启它，
+         * 于是变成"一直闪退"的死循环（真机日志里连着一串 FATAL 就是这个）。
+         * 所以先无条件进前台，再按开关决定要不要真的显示悬浮层。
+         */
         try {
             startForegroundCompat();
             Logs.i(TAG, "startForeground ok");
         } catch (Exception e) {
             // 前台服务起不来时（例如 FGS 类型不被该系统接受）必须留证据，否则表现为"什么都没发生"
             Logs.e(TAG, "startForeground failed", e);
+        }
+
+        // 开关关着时立刻收掉前台状态与悬浮层，避免通知栏一直挂着"运行中"
+        if (!Prefs.overlayEnabled(this) && !ACTION_STOP.equals(action)) {
+            Logs.w(TAG, "overlayEnabled=false，悬浮层不启动（action=" + action + "）");
+            stopTicker();
+            cancelWake();
+            controller.hide();
+            updateNotification(false);
+            stopForegroundCompat();
+            stopSelfResult(startId);
+            return START_NOT_STICKY;
         }
 
         controller.setFrameRequester(new OverlayController.FrameRequester() {

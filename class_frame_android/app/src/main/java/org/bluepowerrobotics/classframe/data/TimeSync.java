@@ -328,39 +328,71 @@ public final class TimeSync {
     static HttpResult fetchHttp(Context context) throws Exception {
         String host = Prefs.httpTimeHost(context).trim();
         int port = Prefs.httpTimePort(context);
-        boolean hasPath = host.contains("/");
         String base = host.startsWith("http://") || host.startsWith("https://")
                 ? host
-                : "http://" + host + (port == 80 || port == 443 ? "" : ":" + port)
-                        + (hasPath ? "/" : "/");
+                : "http://" + host + (port == 80 || port == 443 ? "" : ":" + port) + "/";
 
         Exception first = null;
+        StringBuilder tried = new StringBuilder();
         for (String candidate : candidates(base, host, port)) {
             try {
                 HttpResult result = requestDate(candidate);
                 if (result != null) return result;
             } catch (Exception error) {
                 if (first == null) first = error;
+                tried.append(candidate).append(" → ")
+                        .append(error.getClass().getSimpleName()).append("; ");
             }
         }
-        throw first != null ? first : new IllegalStateException("没有拿到 Date 响应头");
+        String detail = tried.length() == 0 ? "没有可用的地址" : tried.toString();
+        throw new IllegalStateException(detail, first);
     }
 
+    /**
+     * 候选地址顺序：用户填的地址（http 再 https）→ 局域网网关 → 常见校内可通的 http 时间源。
+     *
+     * 加兜底是因为校园网常常只放行少数域名：用户填的域名不通时，
+     * 试一次网关或常见站点往往就能拿到 Date 头把时间校准。
+     */
     private static String[] candidates(String base, String host, int port) {
-        String http = base;
-        String https = base;
+        java.util.LinkedHashSet<String> list = new java.util.LinkedHashSet<>();
         if (base.startsWith("https://")) {
-            https = base;
-            http = "http://" + base.substring(8);
+            list.add(base);
+            list.add("http://" + base.substring(8));
         } else {
-            http = base;
-            https = "https://" + base.substring(7);
+            list.add(base);
+            list.add("https://" + base.substring(7));
         }
-        if (host.startsWith("http://") || host.startsWith("https://")) {
-            return new String[]{base};
+        if (!host.startsWith("http://") && !host.startsWith("https://")) {
+            list.add("http://" + host + ":" + port + "/");
+            list.add("https://" + host + (port == 443 || port == 80 ? "" : ":" + port) + "/");
         }
-        if (http.equals(https)) return new String[]{base};
-        return new String[]{http, https};
+        String gateway = gatewayAddress();
+        if (gateway != null) list.add("http://" + gateway + "/");
+        String[] fallbacks = {
+                "http://www.seewo.com/", "http://www.dingtalk.com/", "http://www.baidu.com/",
+                "http://connect.rom.miui.com/generate_204", "http://www.qq.com/",
+        };
+        for (String fallback : fallbacks) list.add(fallback);
+        return list.toArray(new String[0]);
+    }
+
+    /** 局域网网关地址：很多校园网里它就是个能返回 Date 的 HTTP 服务。 */
+    static String gatewayAddress() {
+        try {
+            java.util.Enumeration<java.net.NetworkInterface> interfaces =
+                    java.net.NetworkInterface.getNetworkInterfaces();
+            while (interfaces != null && interfaces.hasMoreElements()) {
+                java.net.NetworkInterface network = interfaces.nextElement();
+                if (!network.isUp() || network.isLoopback()) continue;
+                for (java.net.InterfaceAddress address : network.getInterfaceAddresses()) {
+                    java.net.InetAddress broadcast = address.getBroadcast();
+                    if (broadcast != null) return broadcast.getHostAddress();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     private static HttpResult requestDate(String url) throws Exception {
