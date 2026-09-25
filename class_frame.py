@@ -608,6 +608,9 @@ class calendar:
         date_s = when.strftime("%Y-%m-%d")
         day = when.isoweekday()
         if not self.data_overrides_lesson(date_s, day, lesson):
+            # ②每日那一格若是具体形态，说明用户在那层明确设过值：本次拖动只当次生效、不写配置
+            if not self.is_daily_default(lesson):
+                return
             self.set_table_cell("单课日程", day, lesson, current)
             return
         # 被调课记录覆盖：位置只能记在记录上（记录一定存在，否则上面会判定为不覆盖）
@@ -633,6 +636,12 @@ class calendar:
                 json.dump(new, file, ensure_ascii=False, indent=2)
         except Exception:
             pass
+
+    def is_daily_default(self, lesson):
+        """②每日里这一节课是否还是"默认"（跟随上级）。"""
+        if not self.daily_schedule or lesson < 0 or lesson >= len(self.daily_schedule):
+            return True
+        return not P.is_concrete(self.daily_schedule[lesson])
 
     def resolve_style(self, when=None, lesson=None, after_class=None):
         """解析链：data 第3项 → ③每课 → ②每日 → ①全局。"""

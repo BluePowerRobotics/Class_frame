@@ -213,6 +213,33 @@ public final class OverlayController implements OverlayView.Listener {
     }
 
     /**
+     * 记录显示相关的状态，用于排查"双通道设备切通道后加不上窗口"这类问题：
+     * 如果那时的屏幕尺寸/安全区与正常时不同，日志里能直接看出来。
+     */
+    private void logDisplayState() {
+        try {
+            android.util.DisplayMetrics metrics = context.getResources().getDisplayMetrics();
+            StringBuilder sb = new StringBuilder();
+            sb.append("显示状态: metrics=").append(metrics.widthPixels).append('x')
+                    .append(metrics.heightPixels).append(" density=").append(metrics.densityDpi);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                android.graphics.Rect bounds = windowManager.getCurrentWindowMetrics().getBounds();
+                android.graphics.Insets insets = windowManager.getCurrentWindowMetrics()
+                        .getWindowInsets().getInsets(
+                                android.view.WindowInsets.Type.systemBars()
+                                        | android.view.WindowInsets.Type.displayCutout());
+                sb.append(" window=").append(bounds.width()).append('x').append(bounds.height())
+                        .append(" insets=").append(insets.left).append(',').append(insets.top)
+                        .append(',').append(insets.right).append(',').append(insets.bottom);
+            }
+            sb.append(" screen=").append(movement.screenW).append('x').append(movement.screenH);
+            Logs.i(TAG, sb.toString());
+        } catch (Throwable error) {
+            Logs.w(TAG, "读取显示状态失败: " + error);
+        }
+    }
+
+    /**
      * 显示悬浮层。
      *
      * 这里必须把「启用悬浮窗」当成硬闸门：以前这个开关只在服务里判断了一次，
@@ -231,6 +258,7 @@ public final class OverlayController implements OverlayView.Listener {
             lastShowError = "未授予「显示在其他应用上方」";
             return false;
         }
+        logDisplayState();
         // 当前时段被「上课/下课隐藏悬浮层」关掉时，show() 不算失败，只是没什么可显示
         if (hiddenBySetting) return false;
         hiddenBySetting = false;
@@ -253,6 +281,9 @@ public final class OverlayController implements OverlayView.Listener {
             lastShowError = null;
             dirty = true;
             refresh();
+            // 打开"自动更新"时，显示之后再顺带对一次时：不阻塞显示，
+            // 成功后由服务重排调度；若校正后才发现"其实此时不该显示"，也会被重新隐藏
+            requestTimeSync();
             Logs.i(TAG, "overlay show ok");
             return true;
         } catch (Exception e) {
@@ -704,10 +735,48 @@ public final class OverlayController implements OverlayView.Listener {
             String date = dateString(calendar);
             int lessons = config.lessonCount();
             boolean override = dataOverridesLesson(date, calendar, lesson, lessons);
+            /*
+             * ②每日那一格若是"具体形态"（不是 default），说明用户在那一层明确设过值，
+             * 此时拖动只当次生效、不写任何配置——这就是"不记忆"的用法。
+             * 只有它在 default 时才把本次形态记进③每课。
+             */
+            if (!override && !isDailyDefault(lesson)) {
+                Logs.i(TAG, "②每日该格已显式设置，本次拖动不写入");
+                return;
+            }
             PositionStore.apply(context, date, isoWeekday(calendar), lesson, current,
                     override, lessons);
         } catch (Exception e) {
             Logs.e(TAG, "记录单课位置失败", e);
+        }
+    }
+
+    /** ②每日里这一节课是否还是"默认"（跟随上级）。 */
+    private boolean isDailyDefault(int lesson) {
+        if (config == null || config.dailySchedule == null
+                || lesson < 0 || lesson >= config.dailySchedule.length) {
+            return true;
+        }
+        return !Positions.isConcrete(config.dailySchedule[lesson]);
+    }
+
+    /** 后台对时，绝不阻塞渲染；节流交给 TimeSync 自己。 */
+    private void requestTimeSync() {
+        try {
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            try {
+                                org.bluepowerrobotics.classframe.data.TimeSync
+                                        .syncAutoQuietly(context);
+                            } catch (Throwable error) {
+                                Logs.e(TAG, "自动对时失败", error);
+                            }
+                        }
+                    }, 800);
+        } catch (Throwable error) {
+            Logs.e(TAG, "安排自动对时失败", error);
         }
     }
 

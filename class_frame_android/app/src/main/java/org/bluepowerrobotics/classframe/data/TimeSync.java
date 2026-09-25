@@ -206,8 +206,10 @@ public final class TimeSync {
                     Logs.w(TAG, "自动更新失败: " + message);
                 } else {
                     Logs.i(TAG, "自动更新成功: " + message);
-                    // 偏移变了要立刻按新时间重排显示/隐藏与下一次唤醒
-                    org.bluepowerrobotics.classframe.overlay.OverlayService.refresh(appContext);
+                    // 偏移变了要立刻按新时间重排显示/隐藏与下一次唤醒。
+                    // 这里用 reschedule 而不是 refresh：偏移不影响配置内容，
+                    // 只做"配置失效"不会触发重算，会出现"校正后本该显示却不显示"。
+                    org.bluepowerrobotics.classframe.overlay.OverlayService.reschedule(appContext);
                 }
             }
         });

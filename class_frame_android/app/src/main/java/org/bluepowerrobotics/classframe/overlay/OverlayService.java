@@ -43,6 +43,7 @@ public class OverlayService extends Service {
     public static final String ACTION_START = "org.bluepowerrobotics.classframe.action.START";
     public static final String ACTION_STOP = "org.bluepowerrobotics.classframe.action.STOP";
     public static final String ACTION_REFRESH = "org.bluepowerrobotics.classframe.action.REFRESH";
+    public static final String ACTION_RESCHEDULE = "org.bluepowerrobotics.classframe.action.RESCHEDULE";
     public static final String ACTION_HIDE_OVERLAY = "org.bluepowerrobotics.classframe.action.HIDE_OVERLAY";
 
     private static final String CHANNEL_ID = "overlay";
@@ -176,6 +177,21 @@ public class OverlayService extends Service {
         }
     }
 
+    /**
+     * 时间参数变了以后重新评估调度。
+     *
+     * 与 refresh() 的区别：refresh() 只让配置失效，而时间偏移变化不影响配置内容，
+     * 因此必须直接重算一次——否则"校正后才发现此时本不该显示"就不会被纠正。
+     */
+    public static void reschedule(Context context) {
+        Intent intent = new Intent(context, OverlayService.class).setAction(ACTION_RESCHEDULE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(intent);
+        } else {
+            context.startService(intent);
+        }
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -227,8 +243,8 @@ public class OverlayService extends Service {
             stopTicker();
             cancelWake();
             controller.hide();
-            updateNotification(false);
             stopForegroundCompat();
+            lastVisible = false;
             stopSelfResult(startId);
             return START_NOT_STICKY;
         }
@@ -251,6 +267,13 @@ public class OverlayService extends Service {
 
         if (ACTION_REFRESH.equals(action)) {
             controller.reloadConfig();
+        }
+
+        if (ACTION_RESCHEDULE.equals(action)) {
+            // 时间偏移变了：立刻按新时间重算显示/隐藏与下一次唤醒
+            controller.reloadConfig();
+            applySchedule();
+            return START_STICKY;
         }
 
         if (ACTION_HIDE_OVERLAY.equals(action)) {

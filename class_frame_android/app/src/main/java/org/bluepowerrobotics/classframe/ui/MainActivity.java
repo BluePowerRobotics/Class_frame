@@ -227,6 +227,12 @@ public class MainActivity extends Activity {
         // 打开应用时确保悬浮层服务在运行（之前 M1 有这段，M4 重写界面时漏了；
         // 现在之所以"打开 system 页才出现悬浮层"，是因为那页开关的 setChecked 顺带启动了服务）
         startOverlayIfAllowed(enabled, canDraw);
+        // 打开"自动更新时间"时，每次回到界面都顺带对一次（后台执行，不阻塞）
+        try {
+            org.bluepowerrobotics.classframe.data.TimeSync.syncAutoQuietly(this);
+        } catch (Throwable error) {
+            org.bluepowerrobotics.classframe.data.Logs.e("Ui", "自动对时失败", error);
+        }
         if (OverlayPermissionRequest.pending) {
             OverlayPermissionRequest.pending = false;
             // 权限可能还没同步过来：稍等再复查两次
