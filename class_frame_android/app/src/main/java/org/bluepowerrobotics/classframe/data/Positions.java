@@ -241,6 +241,10 @@ public final class Positions {
     /**
      * 解析链：data 第3项 → ③每课 → ②每日 → ①全局。
      *
+     * 注意：只用于"上课中"。课间/放学要走 {@link #resolveBreak}——
+     * 那时显示的其实是"下一节课的内容"，若也走这条链，课间就会变成那一节的形态，
+     * 表现为"下课时窗口跳到下一节课的默认位置"。
+     *
      * @param dataRow  该日期 data 记录里的位置行，可为 null（旧数据没有这一项）
      * @param lesson   0 起的课节下标
      * @param day       1–7 的 ISO 周几
@@ -250,6 +254,7 @@ public final class Positions {
     public static String resolve(String[] dataRow, String[][] perLesson, String[] daily,
                                  int lesson, int day, boolean afterClass,
                                  String globalOn, String globalOff) {
+        if (afterClass) return resolveBreak(globalOff);
         if (dataRow != null && lesson >= 0 && lesson < dataRow.length
                 && isConcrete(dataRow[lesson])) {
             return dataRow[lesson];
@@ -259,7 +264,18 @@ public final class Positions {
         String fromDaily = daily != null && lesson >= 0 && lesson < daily.length
                 ? daily[lesson] : DEFAULT;
         if (isConcrete(fromDaily)) return fromDaily;
-        return afterClass ? globalOff : globalOn;
+        return globalOn;
+    }
+
+    /**
+     * 课间/放学的形态：**只用全局的"下课"**，不看②每日与③每课。
+     *
+     * 理由：课间显示的是下一节课的课表内容，但那不是"在上那节课"。
+     * 若让②③参与，下一节设过什么形态，课间就会跟着变——
+     * 用户报告的就是"每节下课时，窗口弹出为下一节课的默认位置"。
+     */
+    public static String resolveBreak(String globalOff) {
+        return isConcrete(globalOff) ? globalOff : UPPER_TABLE;
     }
 
     private static String lookup(String[][] table, int day, int lesson) {

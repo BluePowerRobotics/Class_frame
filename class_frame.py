@@ -597,11 +597,17 @@ class calendar:
         return tokens[lesson] != expected[lesson]
 
     def persist_style_if_changed(self, start_style):
-        """拖动/点按后记录：没变就不写；变了按"能否由 config 解释"决定写哪里。"""
+        """拖动/点按后记录：没变就不写；变了按"能否由 config 解释"决定写哪里。
+
+        只有真正在上某一节课时才记录：课间/放学显示的是"下一节课的内容"，
+        此时的手势属于临时调整，不该写成那一节课的属性。
+        """
+        if self.state_index is None or self.state_index < 0:
+            return
         current = P.of(self.nowgroup, self.second_style)
         if start_style is not None and start_style == current:
             return
-        lesson = self.current_lesson_index()
+        lesson = self.state_index
         if lesson is None or lesson < 0:
             return
         when = self.now_time()

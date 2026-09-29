@@ -206,7 +206,13 @@ def lookup(table, day, lesson):
 
 
 def resolve(data_row, per_lesson, daily, lesson, day, after_class, global_on, global_off):
-    """解析链：data 第3项 → ③每课 → ②每日 → ①全局。"""
+    """解析链：data 第3项 → ③每课 → ②每日 → ①全局。
+
+    注意：只用于"上课中"。课间/放学要走 resolve_break()——
+    那时显示的其实是"下一节课的内容"，若也走这条链，课间就会变成那一节的形态。
+    """
+    if after_class:
+        return resolve_break(global_off)
     if data_row and 0 <= lesson < len(data_row) and is_concrete(data_row[lesson]):
         return data_row[lesson]
     from_per_lesson = lookup(per_lesson, day, lesson)
@@ -215,7 +221,16 @@ def resolve(data_row, per_lesson, daily, lesson, day, after_class, global_on, gl
     from_daily = daily[lesson] if daily and 0 <= lesson < len(daily) else DEFAULT
     if is_concrete(from_daily):
         return from_daily
-    return global_off if after_class else global_on
+    return global_on
+
+
+def resolve_break(global_off):
+    """课间/放学的形态：只用全局的"下课"，不看②每日与③每课。
+
+    理由：课间显示的是下一节课的课表内容，但那不是"在上那节课"。
+    若让②③参与，下一节设过什么形态，课间就会跟着变。
+    """
+    return global_off if is_concrete(global_off) else UPPER_TABLE
 
 
 # ---------------------------------------------------------------- 迁移

@@ -578,6 +578,9 @@ public final class OverlayController implements OverlayView.Listener {
     private void applyResolvedPosition() {
         String style = resolveStyle();
         if (style == null) return;
+        if (state != null && state.afterClass) {
+            Logs.i(TAG, "课间/放学使用全局下课形态: " + style);
+        }
         dock = Positions.dockOf(style);
         secondStyle = Positions.secondStyleOf(style);
     }
@@ -726,9 +729,20 @@ public final class OverlayController implements OverlayView.Listener {
      */
     private void persistStyleIfChanged() {
         if (config == null || state == null) return;
+        /*
+         * 只有真正在上某一节课时才记录。
+         *
+         * 课间/放学时显示的是"下一节课的内容"，此时手势（拖动或点按切样式）
+         * 属于"临时看一眼"，不该写成那一节课的属性——否则下一节课的③每课会被
+         * 课间的形态覆盖，之后连全局设置都管不到它。放学后（stateIndex 同样为 -1）同理。
+         */
+        if (state.stateIndex < 0) {
+            Logs.i(TAG, "非上课时段，忽略本次样式记录（不写入配置）");
+            return;
+        }
         String current = Positions.of(dock, secondStyle);
         if (dragStartStyle != null && dragStartStyle.equals(current)) return;
-        int lesson = state.stateIndex >= 0 ? state.stateIndex : state.stateNext;
+        int lesson = state.stateIndex;
         if (lesson < 0) return;
         try {
             Calendar calendar = now();
