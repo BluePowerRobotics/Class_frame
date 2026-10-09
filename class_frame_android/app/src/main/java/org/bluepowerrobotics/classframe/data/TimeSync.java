@@ -150,10 +150,17 @@ public final class TimeSync {
     private static volatile boolean running;
     /** 两次自动同步之间至少间隔多久（启动时、服务启动时都会触发，用它去重）。 */
     private static final long MIN_AUTO_INTERVAL_MS = 10 * 60 * 1000L;
-    /** 服务常驻期间的自动重试间隔。 */
+    /** 成功之后、服务常驻期间的常规自动重试间隔。 */
     private static final long AUTO_RETRY_INTERVAL_MS = 60 * 60 * 1000L;
+    /** 失败后的密集重试：持续 5 分钟，每 30 秒一次。 */
+    private static final long RETRY_BURST_INTERVAL_MS = 30 * 1000L;
+    private static final long RETRY_BURST_DURATION_MS = 5 * 60 * 1000L;
     private static volatile long lastAttemptAt;
     private static android.os.Handler autoHandler;
+    /** 密集重试窗口的起点；0 表示当前不在密集重试中。 */
+    private static volatile long retryBurstStartAt;
+    /** 自动同步是否由这里安排后续重试（避免和密集重试窗口互相取消）。 */
+    private static volatile boolean autoRetryArmed;
 
     /**
      * 自动更新的入口（app 启动、服务启动时调用）：
@@ -162,33 +169,66 @@ public final class TimeSync {
     public static synchronized void syncAutoQuietly(Context context) {
         if (!Prefs.autoTime(context)) return;
         long now = System.currentTimeMillis();
-        if (now - lastAttemptAt < MIN_AUTO_INTERVAL_MS) return;
+        // 密集重试窗口内不受"十分钟去重"限制，否则 30 秒一次的补救会被挡掉
+        boolean bursting = now - retryBurstStartAt < RETRY_BURST_DURATION_MS;
+        if (!bursting && now - lastAttemptAt < MIN_AUTO_INTERVAL_MS) return;
         lastAttemptAt = now;
-        tryAutoSync(context);
-        scheduleAutoRetry();
+        // 已有重试链在跑就不用再起一条；链本身会在每次回调后安排下一次
+        if (!autoRetryArmed) tryAutoSync(context);
     }
 
     /**
-     * 服务常驻时每小时再试一次。
-     * 间隔比"十分钟去重"长得多，所以手动同步或刚启动过的同步不会被打断。
+     * 安排下一次自动同步。
+     *
+     * 按失败处理：
+     * - 失败（或返回无结果）→ 进入/继续密集重试窗口：**每 30 秒一次，持续 5 分钟**。
+     *   开机时 Android 侧可能比网络先就绪（Windows 还没起完、没有网络共享），
+     *   这时一次失败并不代表永远不通，密集重试能尽快补上。
+     * - 成功 → 结束密集窗口，回到每小时一次的常规节拍。
      */
-    private static synchronized void scheduleAutoRetry() {
+    private static synchronized void scheduleAutoRetry(boolean succeeded) {
         if (autoHandler == null) {
             autoHandler = new android.os.Handler(android.os.Looper.getMainLooper());
         }
         autoHandler.removeCallbacks(retryRunnable);
-        autoHandler.postDelayed(retryRunnable, AUTO_RETRY_INTERVAL_MS);
+        long delay;
+        if (succeeded) {
+            retryBurstStartAt = 0;
+            delay = AUTO_RETRY_INTERVAL_MS;
+        } else {
+            long now = System.currentTimeMillis();
+            if (retryBurstStartAt == 0
+                    || now - retryBurstStartAt >= RETRY_BURST_DURATION_MS) {
+                retryBurstStartAt = now;
+                Logs.i(TAG, "自动对时失败，进入密集重试：每 "
+                        + (RETRY_BURST_INTERVAL_MS / 1000) + " 秒一次，持续 "
+                        + (RETRY_BURST_DURATION_MS / 60000) + " 分钟");
+            }
+            delay = RETRY_BURST_INTERVAL_MS;
+        }
+        autoRetryArmed = true;
+        autoHandler.postDelayed(retryRunnable, delay);
     }
 
     private static final Runnable retryRunnable = new Runnable() {
         @Override
         public void run() {
             Context context = Logs.context();
-            if (context != null && Prefs.autoTime(context)) {
-                lastAttemptAt = System.currentTimeMillis();
-                tryAutoSync(context);
-                scheduleAutoRetry();
+            if (context == null || !Prefs.autoTime(context)) {
+                autoRetryArmed = false;
+                return;
             }
+            long now = System.currentTimeMillis();
+            // 密集窗口到点就回到常规节拍，不再每 30 秒唤一次
+            if (retryBurstStartAt != 0
+                    && now - retryBurstStartAt >= RETRY_BURST_DURATION_MS) {
+                retryBurstStartAt = 0;
+                lastAttemptAt = now;
+                tryAutoSync(context);
+                return;
+            }
+            lastAttemptAt = now;
+            tryAutoSync(context);
         }
     };
 
@@ -202,6 +242,11 @@ public final class TimeSync {
         sync(context, "自动更新", new Callback() {
             @Override
             public void onResult(Long offsetSeconds, String message) {
+                // "上一次同步还没结束"说明有另一次同步在跑，等它出结果即可，
+                // 不算失败，也不要把日志写成失败
+                if (message != null && message.contains("还没结束")) {
+                    return;
+                }
                 if (offsetSeconds == null) {
                     Logs.w(TAG, "自动更新失败: " + message);
                 } else {
@@ -211,6 +256,8 @@ public final class TimeSync {
                     // 只做"配置失效"不会触发重算，会出现"校正后本该显示却不显示"。
                     org.bluepowerrobotics.classframe.overlay.OverlayService.reschedule(appContext);
                 }
+                // 失败就进入密集重试（30 秒 × 5 分钟），成功则回到每小时常规节拍
+                scheduleAutoRetry(offsetSeconds != null);
             }
         });
     }
